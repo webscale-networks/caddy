@@ -540,7 +540,6 @@ var skipHeaders = map[string]struct{}{
 	"Content-Type":        {},
 	"Content-Disposition": {},
 	"Accept-Ranges":       {},
-	"Set-Cookie":          {},
 	"Cache-Control":       {},
 	"Expires":             {},
 }

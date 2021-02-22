@@ -613,6 +613,14 @@ func RegisterDevDirective(name, before string) {
 	fmt.Printf("[DEV NOTICE] %s\n", msg)
 }
 
+// SetDirectives can be used to override the list of known directives for http
+// server type. The new list will be passed in as an argument to this function
+// and it simply initializes the directives list with the new one. This method
+// is called in go/src/webscale.com/cmd/webscale-proxy/main.go.
+func SetDirectives(newDirectiveList []string) {
+	directives = newDirectiveList
+}
+
 // directives is the list of all directives known to exist for the
 // http server type, including non-standard (3rd-party) directives.
 // The ordering of this list is important.
