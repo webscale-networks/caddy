@@ -122,6 +122,7 @@ func Run() {
 			log.SetOutput(f)
 		}
 	}
+	log.Printf("MJH: my version\n")
 
 	// load all additional envs as soon as possible
 	if err := LoadEnvFromFile(envFile); err != nil {
