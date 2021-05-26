@@ -35,7 +35,6 @@ import (
 	"github.com/caddyserver/caddy/telemetry"
 	"github.com/google/uuid"
 	"github.com/klauspost/cpuid"
-	"github.com/mholt/certmagic"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
 	_ "github.com/caddyserver/caddy/caddyhttp" // plug in the HTTP server type
@@ -45,11 +44,6 @@ import (
 func init() {
 	caddy.TrapSignals()
 
-	flag.BoolVar(&certmagic.Default.Agreed, "agree", false, "Agree to the CA's Subscriber Agreement")
-	flag.StringVar(&certmagic.Default.CA, "ca", certmagic.Default.CA, "URL to certificate authority's ACME server directory")
-	flag.StringVar(&certmagic.Default.DefaultServerName, "default-sni", certmagic.Default.DefaultServerName, "If a ClientHello ServerName is empty, use this ServerName to choose a TLS certificate")
-	flag.BoolVar(&certmagic.Default.DisableHTTPChallenge, "disable-http-challenge", certmagic.Default.DisableHTTPChallenge, "Disable the ACME HTTP challenge")
-	flag.BoolVar(&certmagic.Default.DisableTLSALPNChallenge, "disable-tls-alpn-challenge", certmagic.Default.DisableTLSALPNChallenge, "Disable the ACME TLS-ALPN challenge")
 	flag.StringVar(&disabledMetrics, "disabled-metrics", "", "Comma-separated list of telemetry metrics to disable")
 	flag.StringVar(&conf, "conf", "", "Caddyfile to load (default \""+caddy.DefaultConfigFile+"\")")
 	flag.StringVar(&cpu, "cpu", "100%", "CPU cap")
@@ -57,8 +51,6 @@ func init() {
 	flag.StringVar(&envFile, "envfile", "", "Path to file with environment variables to load in KEY=VALUE format")
 	flag.BoolVar(&fromJSON, "json-to-caddyfile", false, "From JSON stdin to Caddyfile stdout")
 	flag.BoolVar(&plugins, "plugins", false, "List installed plugins")
-	flag.StringVar(&certmagic.Default.Email, "email", "", "Default ACME CA account email address")
-	flag.DurationVar(&certmagic.HTTPTimeout, "catimeout", certmagic.HTTPTimeout, "Default ACME CA HTTP timeout")
 	flag.StringVar(&logfile, "log", "", "Process log file")
 	flag.BoolVar(&logTimestamps, "log-timestamps", true, "Enable timestamps for the process log")
 	flag.IntVar(&logRollMB, "log-roll-mb", 100, "Roll process log when it reaches this many megabytes (0 to disable rolling)")
@@ -80,12 +72,11 @@ func Run() {
 	flag.Parse()
 
 	module := getBuildModule()
-	cleanModVersion := strings.TrimPrefix(module.Version, "v")
+	//cleanModVersion := strings.TrimPrefix(module.Version, "v")
 
 	caddy.AppName = appName
 	caddy.AppVersion = module.Version
-	caddy.OnProcessExit = append(caddy.OnProcessExit, certmagic.CleanUpOwnLocks)
-	certmagic.UserAgent = appName + "/" + cleanModVersion
+	//caddy.OnProcessExit = append(caddy.OnProcessExit, certmagic.CleanUpOwnLocks)
 
 	if !logTimestamps {
 		// Disable timestamps for logging

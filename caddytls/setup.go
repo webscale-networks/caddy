@@ -25,6 +25,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -51,6 +52,7 @@ func init() {
 // are specified by the user in the config file. All the automatic HTTPS
 // stuff comes later outside of this function.
 func setupTLS(c *caddy.Controller) error {
+	log.Printf("MJH: setupTLS: %s\n", string(debug.Stack()))
 	if err := makeClusteringPlugin(); err != nil {
 		return err
 	}
@@ -470,6 +472,7 @@ func loadCertsInDir(cfg *Config, c *caddy.Controller, dir string) error {
 }
 
 func makeClusteringPlugin() error {
+	log.Printf("MJH: makeClusteringPlugin: %s\n", string(debug.Stack()))
 	// set up the clustering plugin, if there is one (and there should always
 	// be one since this tls plugin requires it) -- this should be done exactly
 	// once, but we can't do it during init while plugins are still registering,
@@ -494,6 +497,7 @@ func makeClusteringPlugin() error {
 }
 
 func constructDefaultClusterPlugin() (certmagic.Storage, error) {
+	log.Printf("MJH: constructDefaultClusterPlugin: %s\n", string(debug.Stack()))
 	return &certmagic.FileStorage{Path: caddy.AssetsPath()}, nil
 }
 

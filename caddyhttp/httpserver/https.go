@@ -16,8 +16,10 @@ package httpserver
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"runtime/debug"
 	"strconv"
 
 	"github.com/caddyserver/caddy"
@@ -26,6 +28,7 @@ import (
 )
 
 func activateHTTPS(cctx caddy.Context) error {
+	log.Printf("MJH: activateHTTPS: %s\n", string(debug.Stack()))
 	operatorPresent := !caddy.Started()
 
 	if !caddy.Quiet && operatorPresent {
@@ -52,12 +55,14 @@ func activateHTTPS(cctx caddy.Context) error {
 	}
 
 	// update TLS configurations
+	log.Printf("MJH: calling enableAutoHTTPS\n")
 	err := enableAutoHTTPS(ctx.siteConfigs, true)
 	if err != nil {
 		return err
 	}
 
 	// set up redirects
+	log.Printf("MJH: calling makePlaintextRedirects\n")
 	ctx.siteConfigs = makePlaintextRedirects(ctx.siteConfigs)
 
 	// renew all relevant certificates that need renewal. this is important
@@ -67,6 +72,7 @@ func activateHTTPS(cctx caddy.Context) error {
 	// on the ports we'd need to do ACME before we finish starting; parent process
 	// already running renewal ticker, so renewal won't be missed anyway.)
 	if !caddy.IsUpgrade() {
+		log.Printf("MJH: activateHTTPS renewing certificates")
 		ctx.instance.StorageMu.RLock()
 		certCache, ok := ctx.instance.Storage[caddytls.CertCacheInstStorageKey].(*certmagic.Cache)
 		ctx.instance.StorageMu.RUnlock()
@@ -172,6 +178,7 @@ func hostHasOtherPort(allConfigs []*SiteConfig, thisConfigIdx int, otherPort str
 // be the HTTPS configuration. The returned configuration is set
 // to listen on certmagic.HTTPPort. The TLS field of cfg must not be nil.
 func redirPlaintextHost(cfg *SiteConfig) *SiteConfig {
+	log.Printf("MJH: calling redirPlaintextHost\n")
 	redirPort := cfg.Addr.Port
 	if redirPort == strconv.Itoa(certmagic.HTTPSPort) {
 		// By default, HTTPSPort should be DefaultHTTPSPort,

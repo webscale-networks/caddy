@@ -19,6 +19,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"runtime/debug"
 	"strings"
 
 	"github.com/caddyserver/caddy/telemetry"
@@ -40,6 +41,7 @@ type configGroup map[string]*Config
 // This function follows nearly the same logic to lookup
 // a hostname as the getCertificate function uses.
 func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
+	log.Printf("MJH: getConfig: %s\n", string(debug.Stack()))
 	name := certmagic.NormalizedName(hello.ServerName)
 	if name == "" {
 		name = certmagic.NormalizedName(certmagic.Default.DefaultServerName)

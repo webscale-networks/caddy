@@ -29,6 +29,9 @@
 package caddytls
 
 import (
+	"log"
+	"runtime/debug"
+
 	"github.com/caddyserver/caddy"
 	"github.com/go-acme/lego/v3/challenge"
 	"github.com/mholt/certmagic"
@@ -51,6 +54,7 @@ type ConfigHolder interface {
 // of setting up the config may make it look like it doesn't
 // qualify even though it originally did.
 func QualifiesForManagedTLS(c ConfigHolder) bool {
+	log.Printf("MJH: QualifiesForManagedTLS: %s\n", string(debug.Stack()))
 	if c == nil {
 		return false
 	}
@@ -77,6 +81,7 @@ func QualifiesForManagedTLS(c ConfigHolder) bool {
 // Revoke revokes the certificate fro host via the ACME protocol.
 // It assumes the certificate was obtained from certmagic.CA.
 func Revoke(domainName string) error {
+	log.Printf("MJH: Revoke: %s\n", string(debug.Stack()))
 	return certmagic.NewDefault().RevokeCert(domainName, true)
 }
 

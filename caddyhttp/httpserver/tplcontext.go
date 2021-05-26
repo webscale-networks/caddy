@@ -25,6 +25,7 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -176,6 +177,7 @@ func (c Context) Host() (string, error) {
 
 // Port returns the port portion of the Host header if specified.
 func (c Context) Port() (string, error) {
+	log.Printf("MJH: Port(): %s\n", string(debug.Stack()))
 	_, port, err := net.SplitHostPort(c.Req.Host)
 	if err != nil {
 		if !strings.Contains(c.Req.Host, ":") {

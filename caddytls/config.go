@@ -19,6 +19,8 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
+	"log"
+	"runtime/debug"
 	"time"
 
 	"github.com/caddyserver/caddy"
@@ -108,6 +110,7 @@ type Config struct {
 // certificate cache. You will usually need to set other fields on
 // the returned Config for successful practical use.
 func NewConfig(inst *caddy.Instance) (*Config, error) {
+	log.Printf("MJH: NewConfig: %s\n", string(debug.Stack()))
 	inst.StorageMu.RLock()
 	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*certmagic.Cache)
 	inst.StorageMu.RUnlock()

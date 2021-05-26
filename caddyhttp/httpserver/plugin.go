@@ -23,6 +23,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"time"
@@ -38,6 +39,7 @@ import (
 const serverType = "http"
 
 func init() {
+	log.Printf("MJH: init stack: %s\n", string(debug.Stack()))
 	flag.IntVar(&certmagic.HTTPPort, "http-port", certmagic.HTTPPort, "Default port to use for HTTP")
 	flag.IntVar(&certmagic.HTTPSPort, "https-port", certmagic.HTTPSPort, "Default port to use for HTTPS")
 	flag.StringVar(&Host, "host", DefaultHost, "Default host")
@@ -127,6 +129,7 @@ func (h *httpContext) saveConfig(key string, cfg *SiteConfig) {
 // executing directives and otherwise prepares the directives to
 // be parsed and executed.
 func (h *httpContext) InspectServerBlocks(sourceFile string, serverBlocks []caddyfile.ServerBlock) ([]caddyfile.ServerBlock, error) {
+	log.Printf("MJH: InspectServerBlocks stack: %s\n", string(debug.Stack()))
 	siteAddrs := make(map[string]string)
 	httpPort := strconv.Itoa(certmagic.HTTPPort)
 	httpsPort := strconv.Itoa(certmagic.HTTPSPort)
@@ -230,6 +233,7 @@ func (h *httpContext) InspectServerBlocks(sourceFile string, serverBlocks []cadd
 // MakeServers uses the newly-created siteConfigs to
 // create and return a list of server instances.
 func (h *httpContext) MakeServers() ([]caddy.Server, error) {
+	log.Printf("MJH: MakeServers stack: %s\n", string(debug.Stack()))
 	httpPort := strconv.Itoa(certmagic.HTTPPort)
 	httpsPort := strconv.Itoa(certmagic.HTTPSPort)
 
@@ -339,6 +343,7 @@ func normalizedKey(key string) string {
 // If none exist (should only happen in tests), then a
 // new, empty one will be created.
 func GetConfig(c *caddy.Controller) *SiteConfig {
+	log.Printf("MJH: GetConfig stack: %s\n", string(debug.Stack()))
 	ctx := c.Context().(*httpContext)
 	key := normalizedKey(c.Key)
 	if cfg, ok := ctx.keysToSiteConfigs[key]; ok {
@@ -414,6 +419,7 @@ type Address struct {
 
 // String returns a human-friendly print of the address.
 func (a Address) String() string {
+	log.Printf("MJH: Address.String() stack: %s\n", string(debug.Stack()))
 	if a.Host == "" && a.Port == "" {
 		return ""
 	}
@@ -497,6 +503,7 @@ func (a Address) Key() string {
 // standardizeAddress parses an address string into a structured format with separate
 // scheme, host, port, and path portions, as well as the original input string.
 func standardizeAddress(str string) (Address, error) {
+	log.Printf("MJH: standardizeAddress stack: %s\n", string(debug.Stack()))
 	input := str
 
 	httpPort := strconv.Itoa(certmagic.HTTPPort)
