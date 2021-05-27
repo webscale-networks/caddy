@@ -25,7 +25,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -52,7 +51,7 @@ func init() {
 // are specified by the user in the config file. All the automatic HTTPS
 // stuff comes later outside of this function.
 func setupTLS(c *caddy.Controller) error {
-	log.Printf("MJH: setupTLS: %s\n", string(debug.Stack()))
+	//log.Printf("MJH: setupTLS: %s\n", string(debug.Stack()))
 	if err := makeClusteringPlugin(); err != nil {
 		return err
 	}
@@ -69,7 +68,7 @@ func setupTLS(c *caddy.Controller) error {
 	config.Enabled = true
 
 	// we use certmagic events to collect metrics for telemetry
-	config.Manager.OnEvent = func(event string, data interface{}) {
+	/*config.Manager.OnEvent = func(event string, data interface{}) {
 		switch event {
 		case "tls_handshake_started":
 			clientHello := data.(*tls.ClientHelloInfo)
@@ -111,7 +110,7 @@ func setupTLS(c *caddy.Controller) error {
 		case "cached_unmanaged_cert":
 			telemetry.Increment("tls_unmanaged_cert_count")
 		}
-	}
+	}*/
 
 	for c.Next() {
 		var certificateFile, keyFile, loadDir, maxCerts, askURL string
@@ -268,6 +267,7 @@ func setupTLS(c *caddy.Controller) error {
 			case "must_staple":
 				config.Manager.MustStaple = true
 			case "wildcard":
+				log.Printf("MJH: wildcard")
 				if !certmagic.HostQualifies(config.Hostname) {
 					return c.Errf("Hostname '%s' does not qualify for managed TLS, so cannot manage wildcard certificate for it", config.Hostname)
 				}
@@ -292,6 +292,7 @@ func setupTLS(c *caddy.Controller) error {
 
 		// configure on-demand TLS, if enabled
 		if onDemand {
+			log.Printf("MJH: onDemand configured\n")
 			config.Manager.OnDemand = new(certmagic.OnDemandConfig)
 			if maxCerts != "" {
 				log.Println("[WARNING] The max_certs subdirective is now deprecated and offers no protection; please use ask instead.")
@@ -472,7 +473,7 @@ func loadCertsInDir(cfg *Config, c *caddy.Controller, dir string) error {
 }
 
 func makeClusteringPlugin() error {
-	log.Printf("MJH: makeClusteringPlugin: %s\n", string(debug.Stack()))
+	//log.Printf("MJH: makeClusteringPlugin: %s\n", string(debug.Stack()))
 	// set up the clustering plugin, if there is one (and there should always
 	// be one since this tls plugin requires it) -- this should be done exactly
 	// once, but we can't do it during init while plugins are still registering,
@@ -488,6 +489,7 @@ func makeClusteringPlugin() error {
 			if err != nil {
 				return fmt.Errorf("constructing cluster plugin %s: %v", clusterPluginName, err)
 			}
+			log.Printf("MJH: setting default storage from cluster plugin")
 			certmagic.Default.Storage = storage
 		} else {
 			return fmt.Errorf("unrecognized cluster plugin (was it included in the Caddy build?): %s", clusterPluginName)
@@ -497,7 +499,7 @@ func makeClusteringPlugin() error {
 }
 
 func constructDefaultClusterPlugin() (certmagic.Storage, error) {
-	log.Printf("MJH: constructDefaultClusterPlugin: %s\n", string(debug.Stack()))
+	log.Printf("MJH: constructDefaultClusterPlugin")
 	return &certmagic.FileStorage{Path: caddy.AssetsPath()}, nil
 }
 
