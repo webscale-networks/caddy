@@ -16,13 +16,11 @@ package caddytls
 
 import (
 	"bytes"
-	"crypto/tls"
 	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -64,6 +62,7 @@ func setupTLS(c *caddy.Controller) error {
 	if config == nil {
 		return fmt.Errorf("no caddytls.Config to set up for %s", c.Key)
 	}
+	log.Printf("MJH: config = %+v", config)
 
 	config.Enabled = true
 
@@ -113,11 +112,11 @@ func setupTLS(c *caddy.Controller) error {
 	}*/
 
 	for c.Next() {
-		var certificateFile, keyFile, loadDir, maxCerts, askURL string
-		var onDemand bool
+		var certificateFile, keyFile, loadDir string /*, maxCerts, askURL string
+		//var onDemand bool
 
 		args := c.RemainingArgs()
-		switch len(args) {
+		/*switch len(args) {
 		case 1:
 			// even if the email is one of the special values below,
 			// it is still necessary for future analysis that we store
@@ -139,14 +138,14 @@ func setupTLS(c *caddy.Controller) error {
 			certificateFile = args[0]
 			keyFile = args[1]
 			config.Manual = true
-		}
+		}*/
 
 		// Optional block with extra parameters
 		var hadBlock bool
 		for c.NextBlock() {
 			hadBlock = true
 			switch c.Val() {
-			case "ca":
+			/*case "ca":
 				arg := c.RemainingArgs()
 				if len(arg) != 1 {
 					return c.ArgErr()
@@ -158,7 +157,7 @@ func setupTLS(c *caddy.Controller) error {
 				if !ok {
 					return c.Errf("Wrong key type name or key type not supported: '%s'", c.Val())
 				}
-				config.Manager.KeyType = value
+				config.Manager.KeyType = value*/
 			case "protocols":
 				args := c.RemainingArgs()
 				if len(args) == 1 {
@@ -190,7 +189,7 @@ func setupTLS(c *caddy.Controller) error {
 					}
 					config.Ciphers = append(config.Ciphers, value)
 				}
-			case "curves":
+			/*case "curves":
 				for c.NextArg() {
 					value, ok := supportedCurvesMap[strings.ToUpper(c.Val())]
 					if !ok {
@@ -224,11 +223,11 @@ func setupTLS(c *caddy.Controller) error {
 
 				config.ClientCerts = clientCertList[listStart:]
 			case "insecure_disable_sni_matching":
-				config.InsecureDisableSNIMatching = true
+				config.InsecureDisableSNIMatching = true*/
 			case "load":
 				c.Args(&loadDir)
 				config.Manual = true
-			case "max_certs":
+			/*case "max_certs":
 				c.Args(&maxCerts)
 				onDemand = true
 			case "ask":
@@ -279,7 +278,7 @@ func setupTLS(c *caddy.Controller) error {
 					return c.Errf("Cannot convert domain name '%s' to a valid wildcard: too few labels", config.Hostname)
 				}
 				parts[0] = "*"
-				config.Hostname = strings.Join(parts, ".")
+				config.Hostname = strings.Join(parts, ".")*/
 			default:
 				return c.Errf("Unknown subdirective '%s'", c.Val())
 			}
@@ -291,7 +290,7 @@ func setupTLS(c *caddy.Controller) error {
 		}
 
 		// configure on-demand TLS, if enabled
-		if onDemand {
+		/*if onDemand {
 			log.Printf("MJH: onDemand configured\n")
 			config.Manager.OnDemand = new(certmagic.OnDemandConfig)
 			if maxCerts != "" {
@@ -330,7 +329,7 @@ func setupTLS(c *caddy.Controller) error {
 					return nil
 				}
 			}
-		}
+		}*/
 
 		// don't try to load certificates unless we're supposed to
 		if !config.Enabled || !config.Manual {
@@ -339,6 +338,7 @@ func setupTLS(c *caddy.Controller) error {
 
 		// load a single certificate and key, if specified
 		if certificateFile != "" && keyFile != "" {
+			log.Printf("MJH: loading cert file")
 			err := config.Manager.CacheUnmanagedCertificatePEMFile(certificateFile, keyFile, nil)
 			if err != nil {
 				return c.Errf("Unable to load certificate and key files for '%s': %v", c.Key, err)
@@ -462,6 +462,7 @@ func loadCertsInDir(cfg *Config, c *caddy.Controller, dir string) error {
 				return c.Errf("%s: no private key block found", path)
 			}
 
+			log.Printf("MJH: loadDir loading cert file")
 			err = cfg.Manager.CacheUnmanagedCertificatePEMBytes(certPEMBytes, keyPEMBytes, nil)
 			if err != nil {
 				return c.Errf("%s: failed to load cert and key for '%s': %v", path, c.Key, err)
