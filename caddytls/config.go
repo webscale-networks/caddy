@@ -21,13 +21,11 @@ import (
 	"io/ioutil"
 	"log"
 	"runtime/debug"
-	"time"
 
 	"github.com/caddyserver/caddy"
 	"github.com/go-acme/lego/v3/certcrypto"
 	"github.com/go-acme/lego/v3/challenge/tlsalpn01"
 	"github.com/klauspost/cpuid"
-	"github.com/mholt/certmagic"
 )
 
 // Config describes how TLS should be configured and used.
@@ -84,7 +82,7 @@ type Config struct {
 	Managed bool
 
 	// Manager is how certificates are managed
-	Manager *certmagic.Config
+	Manager *caddy.Config
 
 	// SelfSigned means that this hostname is
 	// served with a self-signed certificate
@@ -112,14 +110,11 @@ type Config struct {
 func NewConfig(inst *caddy.Instance) (*Config, error) {
 	log.Printf("MJH: NewConfig: %s\n", string(debug.Stack()))
 	inst.StorageMu.RLock()
-	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*certmagic.Cache)
+	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*caddy.Cache)
 	inst.StorageMu.RUnlock()
 	if !ok || certCache == nil {
-		if err := makeClusteringPlugin(); err != nil {
-			return nil, err
-		}
-		certCache = certmagic.NewCache(certmagic.CacheOptions{
-			GetConfigForCert: func(cert certmagic.Certificate) (certmagic.Config, error) {
+		certCache = caddy.NewCache(caddy.CacheOptions{
+			GetConfigForCert: func(cert caddy.Certificate) (caddy.Config, error) {
 				inst.StorageMu.RLock()
 				cfgMap, ok := inst.Storage[configMapKey].(map[string]*Config)
 				inst.StorageMu.RUnlock()
@@ -130,25 +125,11 @@ func NewConfig(inst *caddy.Instance) (*Config, error) {
 						}
 					}
 				}
-				return certmagic.Default, nil
+				return caddy.Default, nil
 			},
 		})
 
-		storageCleaningTicker := time.NewTicker(12 * time.Hour)
 		done := make(chan bool)
-		go func() {
-			for {
-				select {
-				case <-done:
-					storageCleaningTicker.Stop()
-					return
-				case <-storageCleaningTicker.C:
-					certmagic.CleanStorage(certmagic.Default.Storage, certmagic.CleanStorageOptions{
-						OCSPStaples: true,
-					})
-				}
-			}
-		}()
 		inst.OnShutdown = append(inst.OnShutdown, func() error {
 			certCache.Stop()
 			done <- true
@@ -161,7 +142,7 @@ func NewConfig(inst *caddy.Instance) (*Config, error) {
 		inst.StorageMu.Unlock()
 	}
 	return &Config{
-		Manager: certmagic.New(certCache, certmagic.Config{}),
+		Manager: caddy.New(certCache, caddy.Config{}),
 	}, nil
 }
 

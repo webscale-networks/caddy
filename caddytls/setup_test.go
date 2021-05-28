@@ -14,19 +14,7 @@
 
 package caddytls
 
-import (
-	"crypto/tls"
-	"io/ioutil"
-	"log"
-	"os"
-	"testing"
-
-	"github.com/caddyserver/caddy"
-	"github.com/go-acme/lego/v3/certcrypto"
-	"github.com/mholt/certmagic"
-)
-
-func TestMain(m *testing.M) {
+/*func TestMain(m *testing.M) {
 	// Write test certificates to disk before tests, and clean up
 	// when we're done.
 	err := ioutil.WriteFile(certFile, testCert, 0644)
@@ -507,4 +495,4 @@ QOhTsiedSrnAdyGN/4fy3ryM7xfft0kL0fJuMAsaDk527RH89elWsn2/x20Kk4yl
 0MC2Hb46TpSi125sC8KKfPog88Tk5c0NqMuRkrF8hey1FGlmDoLnzc7ILaZRfyHB
 NVOFBkpdn627G190
 -----END CERTIFICATE-----
-`)
+`)*/

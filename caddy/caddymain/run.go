@@ -31,7 +31,6 @@ import (
 
 	"github.com/caddyserver/caddy"
 	"github.com/caddyserver/caddy/caddyfile"
-	"github.com/caddyserver/caddy/caddytls"
 	"github.com/caddyserver/caddy/telemetry"
 	"github.com/google/uuid"
 	"github.com/klauspost/cpuid"
@@ -72,11 +71,9 @@ func Run() {
 	flag.Parse()
 
 	module := getBuildModule()
-	//cleanModVersion := strings.TrimPrefix(module.Version, "v")
 
 	caddy.AppName = appName
 	caddy.AppVersion = module.Version
-	//caddy.OnProcessExit = append(caddy.OnProcessExit, certmagic.CleanUpOwnLocks)
 
 	if !logTimestamps {
 		// Disable timestamps for logging
@@ -135,15 +132,6 @@ func Run() {
 		mustLogFatalf("[ERROR] Cannot disable specific metrics because telemetry is disabled")
 	}
 
-	// Check for one-time actions
-	if revoke != "" {
-		err := caddytls.Revoke(revoke)
-		if err != nil {
-			mustLogFatalf("%v", err)
-		}
-		fmt.Printf("Revoked certificate for %s\n", revoke)
-		os.Exit(0)
-	}
 	if version {
 		if module.Sum != "" {
 			// a build with a known version will also have a checksum

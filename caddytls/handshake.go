@@ -22,8 +22,8 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/caddyserver/caddy"
 	"github.com/caddyserver/caddy/telemetry"
-	"github.com/mholt/certmagic"
 )
 
 // configGroup is a type that keys configs by their hostname
@@ -42,9 +42,9 @@ type configGroup map[string]*Config
 // a hostname as the getCertificate function uses.
 func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
 	log.Printf("MJH: getConfig: %s\n", string(debug.Stack()))
-	name := certmagic.NormalizedName(hello.ServerName)
+	name := caddy.NormalizedName(hello.ServerName)
 	if name == "" {
-		name = certmagic.NormalizedName(certmagic.Default.DefaultServerName)
+		name = caddy.NormalizedName(caddy.Default.DefaultServerName)
 	}
 
 	// if SNI is empty, prefer matching IP address (it is
@@ -89,7 +89,7 @@ func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
 	// ACME challenge for a name that we don't have a
 	// TLS configuration for; any config will do for
 	// this purpose
-	for _, config := range cg {
+	/*for _, config := range cg {
 		// important! disable on-demand TLS so we don't
 		// try to get certificates for unrecognized names;
 		// this requires a careful pointer dance... first
@@ -115,7 +115,7 @@ func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
 		// if on-demand TLS was not enabled, we should
 		// be able to use this config directly
 		return config
-	}
+	}*/
 
 	log.Printf("[ERROR] No TLS configuration available for ClientHello with ServerName: %s", hello.ServerName)
 

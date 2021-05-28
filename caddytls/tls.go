@@ -28,104 +28,10 @@
 // starting a new listener.
 package caddytls
 
-import (
-	"log"
-	"runtime/debug"
-
-	"github.com/caddyserver/caddy"
-	"github.com/go-acme/lego/v3/challenge"
-	"github.com/mholt/certmagic"
-)
-
 // ConfigHolder is any type that has a Config; it presumably is
 // connected to a hostname and port on which it is serving.
 type ConfigHolder interface {
 	TLSConfig() *Config
 	Host() string
 	Port() string
-}
-
-// QualifiesForManagedTLS returns true if c qualifies for
-// for managed TLS (but not on-demand TLS specifically).
-// It does NOT check to see if a cert and key already exist
-// for the config. If the return value is true, you should
-// be OK to set c.TLSConfig().Managed to true; then you should
-// check that value in the future instead, because the process
-// of setting up the config may make it look like it doesn't
-// qualify even though it originally did.
-func QualifiesForManagedTLS(c ConfigHolder) bool {
-	log.Printf("MJH: QualifiesForManagedTLS: %s\n", string(debug.Stack()))
-	if c == nil {
-		return false
-	}
-	tlsConfig := c.TLSConfig()
-	if tlsConfig == nil || tlsConfig.Manager == nil {
-		return false
-	}
-	onDemand := tlsConfig.Manager.OnDemand != nil
-
-	return (!tlsConfig.Manual || onDemand) && // user might provide own cert and key
-
-		// if self-signed, we've already generated one to use
-		!tlsConfig.SelfSigned &&
-
-		// user can force-disable managed TLS
-		c.Port() != "80" &&
-		tlsConfig.ACMEEmail != "off" &&
-
-		// we get can't certs for some kinds of hostnames, but
-		// on-demand TLS allows empty hostnames at startup
-		(certmagic.HostQualifies(c.Host()) || onDemand)
-}
-
-// Revoke revokes the certificate fro host via the ACME protocol.
-// It assumes the certificate was obtained from certmagic.CA.
-func Revoke(domainName string) error {
-	log.Printf("MJH: Revoke: %s\n", string(debug.Stack()))
-	return certmagic.NewDefault().RevokeCert(domainName, true)
-}
-
-// KnownACMECAs is a list of ACME directory endpoints of
-// known, public, and trusted ACME-compatible certificate
-// authorities.
-var KnownACMECAs = []string{
-	"https://acme-v02.api.letsencrypt.org/directory",
-}
-
-// ChallengeProvider defines an own type that should be used in Caddy plugins
-// over challenge.Provider. Using challenge.Provider causes version mismatches
-// with vendored dependencies (see https://github.com/mattfarina/golang-broken-vendor)
-//
-// challenge.Provider is an interface that allows the implementation of custom
-// challenge providers. For more details, see:
-// https://godoc.org/github.com/go-acme/lego/acme#ChallengeProvider
-type ChallengeProvider challenge.Provider
-
-// DNSProviderConstructor is a function that takes credentials and
-// returns a type that can solve the ACME DNS challenges.
-type DNSProviderConstructor func(credentials ...string) (ChallengeProvider, error)
-
-// dnsProviders is the list of DNS providers that have been plugged in.
-var dnsProviders = make(map[string]DNSProviderConstructor)
-
-// RegisterDNSProvider registers provider by name for solving the ACME DNS challenge.
-func RegisterDNSProvider(name string, provider DNSProviderConstructor) {
-	dnsProviders[name] = provider
-	caddy.RegisterPlugin("tls.dns."+name, caddy.Plugin{})
-}
-
-// ClusterPluginConstructor is a function type that is used to
-// instantiate a new implementation of both certmagic.Storage
-// and certmagic.Locker, which are required for successful
-// use in cluster environments.
-type ClusterPluginConstructor func() (certmagic.Storage, error)
-
-// clusterProviders is the list of storage providers
-var clusterProviders = make(map[string]ClusterPluginConstructor)
-
-// RegisterClusterPlugin registers provider by name for facilitating
-// cluster-wide operations like storage and synchronization.
-func RegisterClusterPlugin(name string, provider ClusterPluginConstructor) {
-	clusterProviders[name] = provider
-	caddy.RegisterPlugin("tls.cluster."+name, caddy.Plugin{})
 }

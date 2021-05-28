@@ -14,12 +14,6 @@
 
 package caddytls
 
-import (
-	"testing"
-
-	"github.com/mholt/certmagic"
-)
-
 type holder struct {
 	host, port string
 	cfg        *Config
@@ -29,7 +23,7 @@ func (h holder) TLSConfig() *Config { return h.cfg }
 func (h holder) Host() string       { return h.host }
 func (h holder) Port() string       { return h.port }
 
-func TestQualifiesForManagedTLS(t *testing.T) {
+/*func TestQualifiesForManagedTLS(t *testing.T) {
 	for i, test := range []struct {
 		cfg    ConfigHolder
 		expect bool
@@ -58,4 +52,4 @@ func TestQualifiesForManagedTLS(t *testing.T) {
 			t.Errorf("Test %d: Expected %v but got %v", i, want, got)
 		}
 	}
-}
+}*/
