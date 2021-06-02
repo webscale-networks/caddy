@@ -21,17 +21,11 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
-	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
-	"sync/atomic"
-	"time"
 
 	"github.com/caddyserver/caddy"
-	"github.com/caddyserver/caddy/telemetry"
-	"github.com/mholt/certmagic"
 )
 
 func init() {
@@ -42,19 +36,11 @@ func init() {
 	}
 
 	caddy.RegisterPlugin("tls", caddy.Plugin{Action: setupTLS})
-
-	// ensure the default Storage implementation is plugged in
-	RegisterClusterPlugin("file", constructDefaultClusterPlugin)
 }
 
 // setupTLS sets up the TLS configuration and installs certificates that
-// are specified by the user in the config file. All the automatic HTTPS
-// stuff comes later outside of this function.
+// are specified by the user in the config file.
 func setupTLS(c *caddy.Controller) error {
-	if err := makeClusteringPlugin(); err != nil {
-		return err
-	}
-
 	configGetter, ok := configGetters[c.ServerType()]
 	if !ok {
 		return fmt.Errorf("no caddytls.ConfigGetter for %s server type; must call RegisterConfigGetter", c.ServerType())
@@ -66,75 +52,11 @@ func setupTLS(c *caddy.Controller) error {
 
 	config.Enabled = true
 
-	// we use certmagic events to collect metrics for telemetry
-	config.Manager.OnEvent = func(event string, data interface{}) {
-		switch event {
-		case "tls_handshake_started":
-			clientHello := data.(*tls.ClientHelloInfo)
-			if ClientHelloTelemetry && len(clientHello.SupportedVersions) > 0 {
-				// If no other plugin (such as the HTTP server type) is implementing ClientHello telemetry, we do it.
-				// NOTE: The values in the Go standard lib's ClientHelloInfo aren't guaranteed to be in order.
-				info := ClientHelloInfo{
-					Version:                   clientHello.SupportedVersions[0], // report the highest
-					CipherSuites:              clientHello.CipherSuites,
-					ExtensionsUnknown:         true, // no extension info... :(
-					CompressionMethodsUnknown: true, // no compression methods... :(
-					Curves:                    clientHello.SupportedCurves,
-					Points:                    clientHello.SupportedPoints,
-					// We also have, but do not yet use: SignatureSchemes, ServerName, and SupportedProtos (ALPN)
-					// because the standard lib parses some extensions, but our MITM detector generally doesn't.
-				}
-				go telemetry.SetNested("tls_client_hello", info.Key(), info)
-			}
-
-		case "tls_handshake_completed":
-			// TODO: This is a "best guess" for now - at this point, we only gave a
-			// certificate to the client; we need something listener-level to be sure
-			go telemetry.Increment("tls_handshake_count")
-
-		case "acme_cert_obtained":
-			go telemetry.Increment("tls_acme_certs_obtained")
-
-		case "acme_cert_renewed":
-			name := data.(string)
-			caddy.EmitEvent(caddy.CertRenewEvent, name)
-			go telemetry.Increment("tls_acme_certs_renewed")
-
-		case "acme_cert_revoked":
-			telemetry.Increment("acme_certs_revoked")
-
-		case "cached_managed_cert":
-			telemetry.Increment("tls_managed_cert_count")
-
-		case "cached_unmanaged_cert":
-			telemetry.Increment("tls_unmanaged_cert_count")
-		}
-	}
-
 	for c.Next() {
-		var certificateFile, keyFile, loadDir, maxCerts, askURL string
-		var onDemand bool
+		var certificateFile, keyFile, loadDir string
 
 		args := c.RemainingArgs()
-		switch len(args) {
-		case 1:
-			// even if the email is one of the special values below,
-			// it is still necessary for future analysis that we store
-			// that value in the ACMEEmail field.
-			config.ACMEEmail = args[0]
-
-			switch args[0] {
-			// user can force-disable managed TLS this way
-			case "off":
-				config.Enabled = false
-				return nil
-			// user might want a temporary, in-memory, self-signed cert
-			case "self_signed":
-				config.SelfSigned = true
-			default:
-				config.Manager.Email = args[0]
-			}
-		case 2:
+		if len(args) == 2 {
 			certificateFile = args[0]
 			keyFile = args[1]
 			config.Manual = true
@@ -145,19 +67,6 @@ func setupTLS(c *caddy.Controller) error {
 		for c.NextBlock() {
 			hadBlock = true
 			switch c.Val() {
-			case "ca":
-				arg := c.RemainingArgs()
-				if len(arg) != 1 {
-					return c.ArgErr()
-				}
-				config.Manager.CA = arg[0]
-			case "key_type":
-				arg := c.RemainingArgs()
-				value, ok := supportedKeyTypes[strings.ToUpper(arg[0])]
-				if !ok {
-					return c.Errf("Wrong key type name or key type not supported: '%s'", c.Val())
-				}
-				config.Manager.KeyType = value
 			case "protocols":
 				args := c.RemainingArgs()
 				if len(args) == 1 {
@@ -227,34 +136,6 @@ func setupTLS(c *caddy.Controller) error {
 			case "load":
 				c.Args(&loadDir)
 				config.Manual = true
-			case "max_certs":
-				c.Args(&maxCerts)
-				onDemand = true
-			case "ask":
-				c.Args(&askURL)
-				onDemand = true
-			case "dns":
-				args := c.RemainingArgs()
-				if len(args) != 1 {
-					return c.ArgErr()
-				}
-				// TODO: we can get rid of DNS provider plugins with this one line
-				// of code; however, currently (Dec. 2018) this adds about 20 MB
-				// of bloat to the Caddy binary, doubling its size to ~40 MB...!
-				// dnsProv, err := dns.NewDNSChallengeProviderByName(args[0])
-				// if err != nil {
-				// 	return c.Errf("Configuring DNS provider '%s': %v", args[0], err)
-				// }
-				dnsProvName := args[0]
-				dnsProvConstructor, ok := dnsProviders[dnsProvName]
-				if !ok {
-					return c.Errf("Unknown DNS provider by name '%s'", dnsProvName)
-				}
-				dnsProv, err := dnsProvConstructor()
-				if err != nil {
-					return c.Errf("Setting up DNS provider '%s': %v", dnsProvName, err)
-				}
-				config.Manager.DNSProvider = dnsProv
 			case "alpn":
 				args := c.RemainingArgs()
 				if len(args) == 0 {
@@ -263,21 +144,6 @@ func setupTLS(c *caddy.Controller) error {
 				for _, arg := range args {
 					config.ALPN = append(config.ALPN, arg)
 				}
-			case "must_staple":
-				config.Manager.MustStaple = true
-			case "wildcard":
-				if !certmagic.HostQualifies(config.Hostname) {
-					return c.Errf("Hostname '%s' does not qualify for managed TLS, so cannot manage wildcard certificate for it", config.Hostname)
-				}
-				if strings.Contains(config.Hostname, "*") {
-					return c.Errf("Cannot convert domain name '%s' to a valid wildcard: already has a wildcard label", config.Hostname)
-				}
-				parts := strings.Split(config.Hostname, ".")
-				if len(parts) < 3 {
-					return c.Errf("Cannot convert domain name '%s' to a valid wildcard: too few labels", config.Hostname)
-				}
-				parts[0] = "*"
-				config.Hostname = strings.Join(parts, ".")
 			default:
 				return c.Errf("Unknown subdirective '%s'", c.Val())
 			}
@@ -288,52 +154,6 @@ func setupTLS(c *caddy.Controller) error {
 			return c.ArgErr()
 		}
 
-		// configure on-demand TLS, if enabled
-		if onDemand {
-			config.Manager.OnDemand = new(certmagic.OnDemandConfig)
-			if maxCerts != "" {
-				log.Println("[WARNING] The max_certs subdirective is now deprecated and offers no protection; please use ask instead.")
-				fmt.Printf("WARNING: The max_certs subdirective is now deprecated and offers no protection; please use ask instead.")
-			}
-			if askURL != "" {
-				parsedURL, err := url.Parse(askURL)
-				if err != nil {
-					return c.Err("ask must be a valid url")
-				}
-				if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-					return c.Err("ask URL must use http or https")
-				}
-				config.Manager.OnDemand.DecisionFunc = func(name string) error {
-					askURLParsed, err := url.Parse(askURL)
-					if err != nil {
-						return fmt.Errorf("parsing ask URL: %v", err)
-					}
-					qs := askURLParsed.Query()
-					qs.Set("domain", name)
-					askURLParsed.RawQuery = qs.Encode()
-
-					resp, err := onDemandAskClient.Get(askURLParsed.String())
-					if err != nil {
-						return fmt.Errorf("error checking %v to determine if certificate for hostname '%s' should be allowed: %v",
-							askURL, name, err)
-					}
-					resp.Body.Close()
-
-					if resp.StatusCode < 200 || resp.StatusCode > 299 {
-						return fmt.Errorf("certificate for hostname '%s' not allowed; non-2xx status code %d returned from %v",
-							name, resp.StatusCode, askURL)
-					}
-
-					return nil
-				}
-			}
-		}
-
-		// don't try to load certificates unless we're supposed to
-		if !config.Enabled || !config.Manual {
-			continue
-		}
-
 		// load a single certificate and key, if specified
 		if certificateFile != "" && keyFile != "" {
 			err := config.Manager.CacheUnmanagedCertificatePEMFile(certificateFile, keyFile, nil)
@@ -341,6 +161,11 @@ func setupTLS(c *caddy.Controller) error {
 				return c.Errf("Unable to load certificate and key files for '%s': %v", c.Key, err)
 			}
 			log.Printf("[INFO] Successfully loaded TLS assets from %s and %s", certificateFile, keyFile)
+		}
+
+		// don't try to load certificates unless we're supposed to
+		if !config.Enabled || !config.Manual {
+			continue
 		}
 
 		// load a directory of certificates, if specified
@@ -353,22 +178,6 @@ func setupTLS(c *caddy.Controller) error {
 	}
 
 	SetDefaultTLSParams(config)
-
-	// generate self-signed cert if needed
-	if config.SelfSigned {
-		ssCert, err := newSelfSignedCertificate(selfSignedConfig{
-			SAN:     []string{config.Hostname},
-			KeyType: config.Manager.KeyType,
-		})
-		if err != nil {
-			return fmt.Errorf("self-signed certificate generation: %v", err)
-		}
-		err = config.Manager.CacheUnmanagedTLSCertificate(ssCert, nil)
-		if err != nil {
-			return fmt.Errorf("self-signed: %v", err)
-		}
-		telemetry.Increment("tls_self_signed_count")
-	}
 
 	// store this as a custom config
 	cfgMap, ok := c.Get(configMapKey).(map[string]*Config)
@@ -467,41 +276,6 @@ func loadCertsInDir(cfg *Config, c *caddy.Controller, dir string) error {
 		}
 		return nil
 	})
-}
-
-func makeClusteringPlugin() error {
-	// set up the clustering plugin, if there is one (and there should always
-	// be one since this tls plugin requires it) -- this should be done exactly
-	// once, but we can't do it during init while plugins are still registering,
-	// so do it as soon as we run a setup)
-	if atomic.CompareAndSwapInt32(&clusterPluginSetup, 0, 1) {
-		clusterPluginName := os.Getenv("CADDY_CLUSTERING")
-		if clusterPluginName == "" {
-			clusterPluginName = "file" // name of default storage plugin
-		}
-		clusterFn, ok := clusterProviders[clusterPluginName]
-		if ok {
-			storage, err := clusterFn()
-			if err != nil {
-				return fmt.Errorf("constructing cluster plugin %s: %v", clusterPluginName, err)
-			}
-			certmagic.Default.Storage = storage
-		} else {
-			return fmt.Errorf("unrecognized cluster plugin (was it included in the Caddy build?): %s", clusterPluginName)
-		}
-	}
-	return nil
-}
-
-func constructDefaultClusterPlugin() (certmagic.Storage, error) {
-	return &certmagic.FileStorage{Path: caddy.AssetsPath()}, nil
-}
-
-var onDemandAskClient = &http.Client{
-	Timeout: 10 * time.Second,
-	CheckRedirect: func(req *http.Request, via []*http.Request) error {
-		return fmt.Errorf("following http redirects is not allowed")
-	},
 }
 
 const configMapKey = "tls_custom_configs"

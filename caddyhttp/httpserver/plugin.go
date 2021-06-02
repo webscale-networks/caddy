@@ -23,7 +23,6 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -31,15 +30,12 @@ import (
 	"github.com/caddyserver/caddy/caddyfile"
 	"github.com/caddyserver/caddy/caddyhttp/staticfiles"
 	"github.com/caddyserver/caddy/caddytls"
-	"github.com/caddyserver/caddy/telemetry"
-	"github.com/mholt/certmagic"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 )
 
 const serverType = "http"
 
 func init() {
-	flag.IntVar(&certmagic.HTTPPort, "http-port", certmagic.HTTPPort, "Default port to use for HTTP")
-	flag.IntVar(&certmagic.HTTPSPort, "https-port", certmagic.HTTPSPort, "Default port to use for HTTPS")
 	flag.StringVar(&Host, "host", DefaultHost, "Default host")
 	flag.StringVar(&Port, "port", DefaultPort, "Default port")
 	flag.StringVar(&Root, "root", DefaultRoot, "Root path of default site")
@@ -67,7 +63,6 @@ func init() {
 	})
 	caddy.RegisterCaddyfileLoader("short", caddy.LoaderFunc(shortCaddyfileLoader))
 	caddy.RegisterParsingCallback(serverType, "root", hideCaddyfile)
-	caddy.RegisterParsingCallback(serverType, "tls", activateHTTPS)
 	caddytls.RegisterConfigGetter(serverType, func(c *caddy.Controller) *caddytls.Config { return GetConfig(c).TLS })
 
 	// disable the caddytls package reporting ClientHellos
@@ -128,8 +123,6 @@ func (h *httpContext) saveConfig(key string, cfg *SiteConfig) {
 // be parsed and executed.
 func (h *httpContext) InspectServerBlocks(sourceFile string, serverBlocks []caddyfile.ServerBlock) ([]caddyfile.ServerBlock, error) {
 	siteAddrs := make(map[string]string)
-	httpPort := strconv.Itoa(certmagic.HTTPPort)
-	httpsPort := strconv.Itoa(certmagic.HTTPSPort)
 
 	// For each address in each server block, make a new config
 	for _, sb := range serverBlocks {
@@ -171,34 +164,13 @@ func (h *httpContext) InspectServerBlocks(sourceFile string, serverBlocks []cadd
 			}
 			siteAddrs[addrStr] = key
 
-			// If default HTTP or HTTPS ports have been customized,
-			// make sure the ACME challenge ports match
-			var altHTTPPort, altTLSALPNPort int
-			if httpPort != DefaultHTTPPort {
-				portInt, err := strconv.Atoi(httpPort)
-				if err != nil {
-					return nil, err
-				}
-				altHTTPPort = portInt
-			}
-			if httpsPort != DefaultHTTPSPort {
-				portInt, err := strconv.Atoi(httpsPort)
-				if err != nil {
-					return nil, err
-				}
-				altTLSALPNPort = portInt
-			}
-
 			// Make our caddytls.Config, which has a pointer to the
-			// instance's certificate cache and enough information
-			// to use automatic HTTPS when the time comes
+			// instance's certificate cache
 			caddytlsConfig, err := caddytls.NewConfig(h.instance)
 			if err != nil {
 				return nil, fmt.Errorf("creating new caddytls configuration: %v", err)
 			}
 			caddytlsConfig.Hostname = addr.Host
-			caddytlsConfig.Manager.AltHTTPPort = altHTTPPort
-			caddytlsConfig.Manager.AltTLSALPNPort = altTLSALPNPort
 
 			// Save the config to our master list, and key it for lookups
 			cfg := &SiteConfig{
@@ -230,47 +202,19 @@ func (h *httpContext) InspectServerBlocks(sourceFile string, serverBlocks []cadd
 // MakeServers uses the newly-created siteConfigs to
 // create and return a list of server instances.
 func (h *httpContext) MakeServers() ([]caddy.Server, error) {
-	httpPort := strconv.Itoa(certmagic.HTTPPort)
-	httpsPort := strconv.Itoa(certmagic.HTTPSPort)
-
-	// make a rough estimate as to whether we're in a "production
-	// environment/system" - start by assuming that most production
-	// servers will set their default CA endpoint to a public,
-	// trusted CA (obviously not a perfect heuristic)
-	var looksLikeProductionCA bool
-	for _, publicCAEndpoint := range caddytls.KnownACMECAs {
-		if strings.Contains(certmagic.Default.CA, publicCAEndpoint) {
-			looksLikeProductionCA = true
-			break
-		}
-	}
-
 	// Iterate each site configuration and make sure that:
 	// 1) TLS is disabled for explicitly-HTTP sites (necessary
 	//    when an HTTP address shares a block containing tls)
 	// 2) if QUIC is enabled, TLS ClientAuth is not, because
 	//    currently, QUIC does not support ClientAuth (TODO:
 	//    revisit this when our QUIC implementation supports it)
-	var atLeastOneSiteLooksLikeProduction bool
 	for _, cfg := range h.siteConfigs {
-		// see if all the addresses (both sites and
-		// listeners) are loopback to help us determine
-		// if this is a "production" instance or not
-		if !atLeastOneSiteLooksLikeProduction {
-			if !caddy.IsLoopback(cfg.Addr.Host) &&
-				!caddy.IsLoopback(cfg.ListenHost) &&
-				(caddytls.QualifiesForManagedTLS(cfg) ||
-					certmagic.HostQualifies(cfg.Addr.Host)) {
-				atLeastOneSiteLooksLikeProduction = true
-			}
-		}
-
 		// make sure TLS is disabled for explicitly-HTTP sites
 		// (necessary when HTTP address shares a block containing tls)
 		if !cfg.TLS.Enabled {
 			continue
 		}
-		if cfg.Addr.Port == httpPort || cfg.Addr.Scheme == "http" {
+		if cfg.Addr.Port == DefaultHTTPPort || cfg.Addr.Scheme == "http" {
 			cfg.TLS.Enabled = false
 			log.Printf("[WARNING] TLS disabled for %s", cfg.Addr)
 		} else if cfg.Addr.Scheme == "" {
@@ -281,11 +225,11 @@ func (h *httpContext) MakeServers() ([]caddy.Server, error) {
 			// is incorrect for this site.
 			cfg.Addr.Scheme = "https"
 		}
-		if cfg.Addr.Port == "" && ((!cfg.TLS.Manual && !cfg.TLS.SelfSigned) || cfg.TLS.Manager.OnDemand != nil) {
+		if cfg.Addr.Port == "" && (!cfg.TLS.Manual && !cfg.TLS.SelfSigned) {
 			// this is vital, otherwise the function call below that
 			// sets the listener address will use the default port
 			// instead of 443 because it doesn't know about TLS.
-			cfg.Addr.Port = httpsPort
+			cfg.Addr.Port = DefaultHTTPSPort
 		}
 		if cfg.TLS.ClientAuth != tls.NoClientCert {
 			if QUIC {
@@ -309,18 +253,6 @@ func (h *httpContext) MakeServers() ([]caddy.Server, error) {
 		}
 		servers = append(servers, s)
 	}
-
-	// NOTE: This value is only a "good guess". Quite often, development
-	// environments will use internal DNS or a local hosts file to serve
-	// real-looking domains in local development. We can't easily tell
-	// which without doing a DNS lookup, so this guess is definitely naive,
-	// and if we ever want a better guess, we will have to do DNS lookups.
-	deploymentGuess := "dev"
-	if looksLikeProductionCA && atLeastOneSiteLooksLikeProduction {
-		deploymentGuess = "prod"
-	}
-	telemetry.Set("http_deployment_guess", deploymentGuess)
-	telemetry.Set("http_num_sites", len(h.siteConfigs))
 
 	return servers, nil
 }
@@ -349,7 +281,7 @@ func GetConfig(c *caddy.Controller) *SiteConfig {
 	// the configs
 	cfg := &SiteConfig{
 		Root:       Root,
-		TLS:        &caddytls.Config{Manager: certmagic.NewDefault()},
+		TLS:        &caddytls.Config{Manager: wstls.NewDefault()},
 		IndexPages: staticfiles.DefaultIndexPages,
 	}
 	ctx.saveConfig(key, cfg)
@@ -419,7 +351,7 @@ func (a Address) String() string {
 	}
 	scheme := a.Scheme
 	if scheme == "" {
-		if a.Port == strconv.Itoa(certmagic.HTTPSPort) {
+		if a.Port == DefaultHTTPSPort {
 			scheme = "https"
 		} else {
 			scheme = "http"
@@ -499,17 +431,14 @@ func (a Address) Key() string {
 func standardizeAddress(str string) (Address, error) {
 	input := str
 
-	httpPort := strconv.Itoa(certmagic.HTTPPort)
-	httpsPort := strconv.Itoa(certmagic.HTTPSPort)
-
 	// As of Go 1.12.8 (Aug 2019), ports that are service names such
 	// as ":http" and ":https" are no longer parsed as they were
 	// before, which is a breaking change for us. Attempt to smooth
 	// this over for now by replacing those strings with their port
 	// equivalents. See
 	// https://github.com/golang/go/commit/3226f2d492963d361af9dfc6714ef141ba606713
-	str = strings.Replace(str, ":https", ":"+httpsPort, 1)
-	str = strings.Replace(str, ":http", ":"+httpPort, 1)
+	str = strings.Replace(str, ":https", ":"+DefaultHTTPSPort, 1)
+	str = strings.Replace(str, ":http", ":"+DefaultHTTPPort, 1)
 
 	// Split input into components (prepend with // to assert host by default)
 	if !strings.Contains(str, "//") && !strings.HasPrefix(str, "/") {
@@ -532,23 +461,23 @@ func standardizeAddress(str string) (Address, error) {
 	// see if we can set port based off scheme
 	if port == "" {
 		if u.Scheme == "http" {
-			port = httpPort
+			port = DefaultHTTPPort
 		} else if u.Scheme == "https" {
-			port = httpsPort
+			port = DefaultHTTPSPort
 		}
 	}
 
 	// error if scheme and port combination violate convention
-	if (u.Scheme == "http" && port == httpsPort) || (u.Scheme == "https" && port == httpPort) {
+	if (u.Scheme == "http" && port == DefaultHTTPSPort) || (u.Scheme == "https" && port == DefaultHTTPPort) {
 		return Address{}, fmt.Errorf("[%s] scheme and port violate convention", input)
 	}
 
 	// standardize http and https ports to their respective port numbers
 	// (this behavior changed in Go 1.12.8)
 	if u.Scheme == "" {
-		if port == httpPort {
+		if port == DefaultHTTPPort {
 			u.Scheme = "http"
-		} else if port == httpsPort {
+		} else if port == DefaultHTTPSPort {
 			u.Scheme = "https"
 		}
 	}

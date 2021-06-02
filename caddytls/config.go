@@ -19,13 +19,12 @@ import (
 	"crypto/x509"
 	"fmt"
 	"io/ioutil"
-	"time"
 
 	"github.com/caddyserver/caddy"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/go-acme/lego/v3/certcrypto"
 	"github.com/go-acme/lego/v3/challenge/tlsalpn01"
 	"github.com/klauspost/cpuid"
-	"github.com/mholt/certmagic"
 )
 
 // Config describes how TLS should be configured and used.
@@ -77,23 +76,13 @@ type Config struct {
 	// Manual means user provides own certs and keys
 	Manual bool
 
-	// Managed means this config should be managed
-	// by the CertMagic Config (Manager field)
-	Managed bool
-
 	// Manager is how certificates are managed
-	Manager *certmagic.Config
+	Manager *wstls.Config
 
 	// SelfSigned means that this hostname is
 	// served with a self-signed certificate
 	// that we generated in memory for convenience
 	SelfSigned bool
-
-	// The email address to use when creating or
-	// using an ACME account (fun fact: if this
-	// is set to "off" then this config will not
-	// qualify for managed TLS)
-	ACMEEmail string
 
 	// The list of protocols to choose from for Application Layer
 	// Protocol Negotiation (ALPN).
@@ -109,56 +98,17 @@ type Config struct {
 // the returned Config for successful practical use.
 func NewConfig(inst *caddy.Instance) (*Config, error) {
 	inst.StorageMu.RLock()
-	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*certmagic.Cache)
+	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*wstls.Cache)
 	inst.StorageMu.RUnlock()
 	if !ok || certCache == nil {
-		if err := makeClusteringPlugin(); err != nil {
-			return nil, err
-		}
-		certCache = certmagic.NewCache(certmagic.CacheOptions{
-			GetConfigForCert: func(cert certmagic.Certificate) (certmagic.Config, error) {
-				inst.StorageMu.RLock()
-				cfgMap, ok := inst.Storage[configMapKey].(map[string]*Config)
-				inst.StorageMu.RUnlock()
-				if ok {
-					for hostname, cfg := range cfgMap {
-						if cfg.Manager != nil && hostname == cert.Names[0] {
-							return *cfg.Manager, nil
-						}
-					}
-				}
-				return certmagic.Default, nil
-			},
-		})
-
-		storageCleaningTicker := time.NewTicker(12 * time.Hour)
-		done := make(chan bool)
-		go func() {
-			for {
-				select {
-				case <-done:
-					storageCleaningTicker.Stop()
-					return
-				case <-storageCleaningTicker.C:
-					certmagic.CleanStorage(certmagic.Default.Storage, certmagic.CleanStorageOptions{
-						OCSPStaples: true,
-					})
-				}
-			}
-		}()
-		inst.OnShutdown = append(inst.OnShutdown, func() error {
-			certCache.Stop()
-			done <- true
-			close(done)
-			return nil
-		})
+		certCache = wstls.NewCache()
 
 		inst.StorageMu.Lock()
 		inst.Storage[CertCacheInstStorageKey] = certCache
 		inst.StorageMu.Unlock()
 	}
 	return &Config{
-		Manager: certmagic.New(certCache, certmagic.Config{}),
+		Manager: wstls.New(certCache, wstls.Config{}),
 	}, nil
 }
 
@@ -583,8 +533,4 @@ var defaultCurves = []tls.CurveID{
 	tls.CurveP256,
 }
 
-var clusterPluginSetup int32 // access atomically
-
-// CertCacheInstStorageKey is the name of the key for
-// accessing the certificate storage on the *caddy.Instance.
 const CertCacheInstStorageKey = "tls_cert_cache"

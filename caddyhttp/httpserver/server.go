@@ -410,31 +410,6 @@ func (s *Server) serveHTTP(w http.ResponseWriter, r *http.Request) (int, error) 
 	c := context.WithValue(r.Context(), caddy.CtxKey("path_prefix"), pathPrefix)
 	r = r.WithContext(c)
 
-	if vhost == nil {
-		// check for ACME challenge even if vhost is nil;
-		// could be a new host coming online soon - choose any
-		// vhost's cert manager configuration, I guess
-		if len(s.sites) > 0 && s.sites[0].TLS.Manager.HandleHTTPChallenge(w, r) {
-			return 0, nil
-		}
-
-		// otherwise, log the error and write a message to the client
-		remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			remoteHost = r.RemoteAddr
-		}
-		WriteSiteNotFound(w, r) // don't add headers outside of this function (http.forwardproxy)
-		log.Printf("[INFO] %s - No such site at %s (Remote: %s, Referer: %s)",
-			hostname, s.Server.Addr, remoteHost, r.Header.Get("Referer"))
-		return 0, nil
-	}
-
-	// we still check for ACME challenge if the vhost exists,
-	// because the HTTP challenge might be disabled by its config
-	if vhost.TLS.Manager.HandleHTTPChallenge(w, r) {
-		return 0, nil
-	}
-
 	// trim the path portion of the site address from the beginning of
 	// the URL path, so a request to example.com/foo/blog on the site
 	// defined as example.com/foo appears as /blog instead of /foo/blog.

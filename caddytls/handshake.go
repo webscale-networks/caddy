@@ -22,7 +22,7 @@ import (
 	"strings"
 
 	"github.com/caddyserver/caddy/telemetry"
-	"github.com/mholt/certmagic"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 )
 
 // configGroup is a type that keys configs by their hostname
@@ -40,9 +40,9 @@ type configGroup map[string]*Config
 // This function follows nearly the same logic to lookup
 // a hostname as the getCertificate function uses.
 func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
-	name := certmagic.NormalizedName(hello.ServerName)
+	name := wstls.NormalizedName(hello.ServerName)
 	if name == "" {
-		name = certmagic.NormalizedName(certmagic.Default.DefaultServerName)
+		name = wstls.NormalizedName(wstls.Default.DefaultServerName)
 	}
 
 	// if SNI is empty, prefer matching IP address (it is
@@ -79,39 +79,6 @@ func (cg configGroup) getConfig(hello *tls.ClientHelloInfo) *Config {
 	// a specific host, like ":443", when SNI is
 	// a non-empty value
 	if config, ok := cg[""]; ok {
-		return config
-	}
-
-	// failover with a random config: this is necessary
-	// because we might be needing to solve a TLS-ALPN
-	// ACME challenge for a name that we don't have a
-	// TLS configuration for; any config will do for
-	// this purpose
-	for _, config := range cg {
-		// important! disable on-demand TLS so we don't
-		// try to get certificates for unrecognized names;
-		// this requires a careful pointer dance... first
-		// make shallow copies of the structs
-		if config.Manager != nil && config.Manager.OnDemand != nil {
-			cfgCopy := *config
-			mgrCopy := *config.Manager
-			tlsCfgCopy := config.tlsConfig.Clone()
-
-			// then turn off on-demand TLS
-			mgrCopy.OnDemand = nil
-
-			// then change the copies; make sure the
-			// GetCertificate callback is updated so
-			// it points to our modified config
-			cfgCopy.Manager = &mgrCopy
-			tlsCfgCopy.GetCertificate = mgrCopy.GetCertificate
-			cfgCopy.tlsConfig = tlsCfgCopy
-
-			// finally, return the reconstructed config
-			return &cfgCopy
-		}
-		// if on-demand TLS was not enabled, we should
-		// be able to use this config directly
 		return config
 	}
 

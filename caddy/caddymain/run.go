@@ -31,11 +31,9 @@ import (
 
 	"github.com/caddyserver/caddy"
 	"github.com/caddyserver/caddy/caddyfile"
-	"github.com/caddyserver/caddy/caddytls"
 	"github.com/caddyserver/caddy/telemetry"
 	"github.com/google/uuid"
 	"github.com/klauspost/cpuid"
-	"github.com/mholt/certmagic"
 	lumberjack "gopkg.in/natefinch/lumberjack.v2"
 
 	_ "github.com/caddyserver/caddy/caddyhttp" // plug in the HTTP server type
@@ -45,27 +43,19 @@ import (
 func init() {
 	caddy.TrapSignals()
 
-	flag.BoolVar(&certmagic.Default.Agreed, "agree", false, "Agree to the CA's Subscriber Agreement")
-	flag.StringVar(&certmagic.Default.CA, "ca", certmagic.Default.CA, "URL to certificate authority's ACME server directory")
-	flag.StringVar(&certmagic.Default.DefaultServerName, "default-sni", certmagic.Default.DefaultServerName, "If a ClientHello ServerName is empty, use this ServerName to choose a TLS certificate")
-	flag.BoolVar(&certmagic.Default.DisableHTTPChallenge, "disable-http-challenge", certmagic.Default.DisableHTTPChallenge, "Disable the ACME HTTP challenge")
-	flag.BoolVar(&certmagic.Default.DisableTLSALPNChallenge, "disable-tls-alpn-challenge", certmagic.Default.DisableTLSALPNChallenge, "Disable the ACME TLS-ALPN challenge")
-	flag.StringVar(&disabledMetrics, "disabled-metrics", "", "Comma-separated list of telemetry metrics to disable")
 	flag.StringVar(&conf, "conf", "", "Caddyfile to load (default \""+caddy.DefaultConfigFile+"\")")
 	flag.StringVar(&cpu, "cpu", "100%", "CPU cap")
+	flag.StringVar(&disabledMetrics, "disabled-metrics", "", "Comma-separated list of telemetry metrics to disable")
 	flag.BoolVar(&printEnv, "env", false, "Enable to print environment variables")
 	flag.StringVar(&envFile, "envfile", "", "Path to file with environment variables to load in KEY=VALUE format")
 	flag.BoolVar(&fromJSON, "json-to-caddyfile", false, "From JSON stdin to Caddyfile stdout")
 	flag.BoolVar(&plugins, "plugins", false, "List installed plugins")
-	flag.StringVar(&certmagic.Default.Email, "email", "", "Default ACME CA account email address")
-	flag.DurationVar(&certmagic.HTTPTimeout, "catimeout", certmagic.HTTPTimeout, "Default ACME CA HTTP timeout")
 	flag.StringVar(&logfile, "log", "", "Process log file")
 	flag.BoolVar(&logTimestamps, "log-timestamps", true, "Enable timestamps for the process log")
 	flag.IntVar(&logRollMB, "log-roll-mb", 100, "Roll process log when it reaches this many megabytes (0 to disable rolling)")
 	flag.BoolVar(&logRollCompress, "log-roll-compress", true, "Gzip-compress rolled process log files")
 	flag.StringVar(&caddy.PidFile, "pidfile", "", "Path to write pid file")
 	flag.BoolVar(&caddy.Quiet, "quiet", false, "Quiet mode (no initialization output)")
-	flag.StringVar(&revoke, "revoke", "", "Hostname for which to revoke the certificate")
 	flag.StringVar(&serverType, "type", "http", "Type of server to run")
 	flag.BoolVar(&toJSON, "caddyfile-to-json", false, "From Caddyfile stdin to JSON stdout")
 	flag.BoolVar(&version, "version", false, "Show version")
@@ -80,12 +70,9 @@ func Run() {
 	flag.Parse()
 
 	module := getBuildModule()
-	cleanModVersion := strings.TrimPrefix(module.Version, "v")
 
 	caddy.AppName = appName
 	caddy.AppVersion = module.Version
-	caddy.OnProcessExit = append(caddy.OnProcessExit, certmagic.CleanUpOwnLocks)
-	certmagic.UserAgent = appName + "/" + cleanModVersion
 
 	if !logTimestamps {
 		// Disable timestamps for logging
@@ -144,15 +131,6 @@ func Run() {
 		mustLogFatalf("[ERROR] Cannot disable specific metrics because telemetry is disabled")
 	}
 
-	// Check for one-time actions
-	if revoke != "" {
-		err := caddytls.Revoke(revoke)
-		if err != nil {
-			mustLogFatalf("%v", err)
-		}
-		fmt.Printf("Revoked certificate for %s\n", revoke)
-		os.Exit(0)
-	}
 	if version {
 		if module.Sum != "" {
 			// a build with a known version will also have a checksum
@@ -599,7 +577,6 @@ var (
 	logTimestamps   bool
 	logRollMB       int
 	logRollCompress bool
-	revoke          string
 	toJSON          bool
 	version         bool
 	plugins         bool
