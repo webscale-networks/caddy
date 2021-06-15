@@ -429,6 +429,10 @@ func (i *Instance) Wait() {
 	i.wg.Wait()
 }
 
+func (i *Instance) Waiter() *sync.WaitGroup {
+	return i.wg
+}
+
 // CaddyfileFromPipe loads the Caddyfile input from f if f is
 // not interactive input. f is assumed to be a pipe or stream,
 // such as os.Stdin. If f is not a pipe, no error is returned
