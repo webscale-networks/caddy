@@ -16,7 +16,6 @@ package tls
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"net"
 	"strings"
@@ -40,13 +39,18 @@ type Config struct {
 	// will be used.
 	CertSelection CertificateSelector
 
-	// TrustedRoots specifies a pool of root CA
-	// certificates to trust when communicating
-	// over a network to a peer.
-	TrustedRoots *x509.CertPool
+	// Pointer to the in-memory certificate cache. This cache is keyed on the
+	// names in a certificate.
+	certCache *NameKeyedCache
 
-	// Pointer to the in-memory certificate cache
-	certCache *Cache
+	// Pointer to in-memory certificate cache to use instead of certCache.
+	// When non-nil, this cache is used instead of certCache for certificate
+	// lookups. This cache is keyed on hostname aliases. These alias-certificate
+	// associations are detailed in 'strict_tls' directive of the Caddyfile. The
+	// certificate that is served is the one that matches the SNI in the
+	// client's hello message during the TLS handshake, regardless of whether or
+	// not the certificate covers the alias.
+	OverrideCache *AliasKeyedCache
 }
 
 var Default = Config{}
@@ -71,7 +75,7 @@ var Default = Config{}
 func NewDefault() *Config {
 	defaultCacheMu.Lock()
 	if defaultCache == nil {
-		defaultCache = NewCache()
+		defaultCache = NewNameKeyedCache()
 	}
 	certCache := defaultCache
 	defaultCacheMu.Unlock()
@@ -90,7 +94,7 @@ func NewDefault() *Config {
 // single Config, thus the default cache (which always
 // uses the default Config) and default config will
 // suffice, and you should use New() instead.
-func New(certCache *Cache, cfg Config) *Config {
+func New(certCache *NameKeyedCache, cfg Config) *Config {
 	if certCache == nil {
 		panic("a certificate cache is required")
 	}
@@ -100,7 +104,7 @@ func New(certCache *Cache, cfg Config) *Config {
 // newWithCache ensures that cfg is a valid config by populating
 // zero-value fields from the Default Config. If certCache is
 // nil, this function panics.
-func newWithCache(certCache *Cache, cfg Config) *Config {
+func newWithCache(certCache *NameKeyedCache, cfg Config) *Config {
 	if certCache == nil {
 		panic("cannot make a valid config without a pointer to a certificate cache")
 	}
@@ -113,16 +117,25 @@ func newWithCache(certCache *Cache, cfg Config) *Config {
 	// ensure the unexported fields are valid
 	cfg.certCache = certCache
 
+	// By default, do not override the certificate cache.
+	cfg.OverrideCache = nil
+
 	return &cfg
 }
 
-// GetCertificate gets a certificate to satisfy clientHello. In getting
-// the certificate, it abides the rules and settings defined in the
-// Config that matches clientHello.ServerName. It checks the in-
-// memory cache.
+// GetCertificate gets a certificate to satisfy clientHello. If the config's
+// cache override is set, that cache is used instead of the default
+// name-keyed-cache.
 //
 // This method is safe for use as a tls.Config.GetCertificate callback.
 func (cfg *Config) GetCertificate(clientHello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+	if cfg.OverrideCache != nil {
+		cert, err := cfg.OverrideCache.getCertificate(clientHello)
+		if err != nil {
+			return nil, err
+		}
+		return &cert.Certificate, nil
+	}
 	// get the certificate and serve it up
 	cert, err := cfg.getCertDuringHandshake(clientHello, true, true)
 	return &cert.Certificate, err

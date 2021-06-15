@@ -15,12 +15,15 @@
 package tls
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/pem"
 	"fmt"
 	"io/ioutil"
+	"log"
 	"math/big"
 	"strings"
 	"time"
@@ -117,6 +120,74 @@ func (cfg *Config) CacheUnmanagedCertificatePEMFile(certFile, keyFile string, ta
 	cert.CertMetadata.Tags = tags
 	cfg.certCache.cacheCertificate(cert)
 	return nil
+}
+
+// ParseCertificate parses the given *.pem file into certificate and key bytes.
+// Any errors are returned.
+// This implementation was moved from caddytls/setup.go to make it available to
+// multiple packages and avoid duplicate code.
+func ParseCertificate(file string) ([]byte, []byte, error) {
+	certBuilder, keyBuilder := new(bytes.Buffer), new(bytes.Buffer)
+	var foundKey bool // use only the first key in the file
+
+	bundle, err := ioutil.ReadFile(file)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for {
+		// Decode next block so we can see what type it is
+		var derBlock *pem.Block
+		derBlock, bundle = pem.Decode(bundle)
+		if derBlock == nil {
+			break
+		}
+
+		if derBlock.Type == "CERTIFICATE" {
+			// Re-encode certificate as PEM, appending to certificate chain
+			if err := pem.Encode(certBuilder, derBlock); err != nil {
+				log.Println("[ERROR] failed to write PEM encoding: ", err)
+			}
+		} else if derBlock.Type == "EC PARAMETERS" {
+			// EC keys generated from openssl can be composed of two blocks:
+			// parameters and key (parameter block should come first)
+			if !foundKey {
+				// Encode parameters
+				if err := pem.Encode(keyBuilder, derBlock); err != nil {
+					log.Println("[ERROR] failed to write PEM encoding: ", err)
+				}
+
+				// Key must immediately follow
+				derBlock, bundle = pem.Decode(bundle)
+				if derBlock == nil || derBlock.Type != "EC PRIVATE KEY" {
+					return nil, nil, fmt.Errorf("%s: expected elliptic private key to immediately follow EC parameters", file)
+				}
+				if err := pem.Encode(keyBuilder, derBlock); err != nil {
+					log.Println("[ERROR] failed to write PEM encoding: ", err)
+				}
+				foundKey = true
+			}
+		} else if derBlock.Type == "PRIVATE KEY" || strings.HasSuffix(derBlock.Type, " PRIVATE KEY") {
+			// RSA key
+			if !foundKey {
+				if err := pem.Encode(keyBuilder, derBlock); err != nil {
+					log.Println("[ERROR] failed to write PEM encoding: ", err)
+				}
+				foundKey = true
+			}
+		} else {
+			return nil, nil, fmt.Errorf("%s: unrecognized PEM block type: %s", file, derBlock.Type)
+		}
+	}
+
+	certPEMBytes, keyPEMBytes := certBuilder.Bytes(), keyBuilder.Bytes()
+	if len(certPEMBytes) == 0 {
+		return nil, nil, fmt.Errorf("%s: failed to parse PEM data", file)
+	}
+	if len(keyPEMBytes) == 0 {
+		return nil, nil, fmt.Errorf("%s: no private key block found", file)
+	}
+	return certPEMBytes, keyPEMBytes, nil
 }
 
 // makeCertificate turns a certificate PEM bundle and a key PEM block into

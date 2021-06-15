@@ -6,6 +6,7 @@ import (
 	"net"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestNewDefault(t *testing.T) {
@@ -16,7 +17,7 @@ func TestNewDefault(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
-	cache := NewCache()
+	cache := NewNameKeyedCache()
 	cfg := Config{}
 	newCfg := New(cache, cfg)
 	if !reflect.DeepEqual(newCfg.certCache, cache) {
@@ -25,7 +26,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestNewWithCache(t *testing.T) {
-	cache := NewCache()
+	cache := NewNameKeyedCache()
 	cfg := Config{}
 	newCfg := newWithCache(cache, cfg)
 	if !reflect.DeepEqual(newCfg.certCache, cache) {
@@ -43,7 +44,7 @@ func TestNewWithCache(t *testing.T) {
 }
 
 func TestGetCertificate(t *testing.T) {
-	c := &Cache{
+	c := &NameKeyedCache{
 		cache:      make(map[string]Certificate),
 		cacheIndex: make(map[string][]string),
 	}
@@ -125,5 +126,39 @@ func TestGetCertificate(t *testing.T) {
 		t.Errorf("Got an error with no SNI but matching IP, but shouldn't have: %v", err)
 	} else if cert == nil || len(cert.Leaf.IPAddresses) == 0 {
 		t.Errorf("Expected IP cert, got: %v", cert)
+	}
+}
+
+func TestGetCertificate_override(t *testing.T) {
+	c := NewAliasKeyedCache()
+	cfg := &Config{OverrideCache: c}
+
+	// create a test connection for conn.LocalAddr()
+	l, _ := net.Listen("tcp", "127.0.0.1:0")
+	defer l.Close()
+	conn, _ := net.Dial("tcp", l.Addr().String())
+	if conn == nil {
+		t.Errorf("failed to create a test connection")
+	}
+	defer conn.Close()
+
+	hello := &tls.ClientHelloInfo{ServerName: "example.com", Conn: conn}
+
+	// When cache has one certificate in it
+	cert := Certificate{
+		Certificate: tls.Certificate{
+			Leaf: &x509.Certificate{
+				DNSNames: []string{"example.com"},
+			},
+		},
+		NotAfter: time.Now().Add(1 * time.Hour),
+	}
+	c.cache["example.com"] = &cert
+	returnedCert, err := cfg.GetCertificate(hello)
+	if err != nil {
+		t.Fatalf("Got an error but shouldn't have, when cert exists in cache: %v", err)
+	}
+	if !reflect.DeepEqual(cert.Certificate.Leaf, returnedCert.Leaf) {
+		t.Fatalf("Expected %+v, got %+v", cert, returnedCert)
 	}
 }

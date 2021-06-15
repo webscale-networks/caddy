@@ -6,7 +6,7 @@ import (
 )
 
 func TestNewCache(t *testing.T) {
-	c := NewCache()
+	c := NewNameKeyedCache()
 	if c.cache == nil ||
 		c.cacheIndex == nil {
 		t.Fatalf("Expected a fully initialized cache, got %v", c)
@@ -14,7 +14,7 @@ func TestNewCache(t *testing.T) {
 }
 
 func TestCacheCertificate(t *testing.T) {
-	certCache := &Cache{cache: make(map[string]Certificate), cacheIndex: make(map[string][]string)}
+	certCache := &NameKeyedCache{cache: make(map[string]Certificate), cacheIndex: make(map[string][]string)}
 
 	certCache.cacheCertificate(Certificate{Names: []string{"example.com", "sub.example.com"}, hash: "foobar"})
 	if len(certCache.cache) != 1 {
@@ -43,7 +43,7 @@ func TestCacheCertificate(t *testing.T) {
 }
 
 func TestUnsyncedCacheCertificate(t *testing.T) {
-	c := NewCache()
+	c := NewNameKeyedCache()
 
 	// Add certificate test.
 	hash := "1"
@@ -77,7 +77,7 @@ func TestUnsyncedCacheCertificate(t *testing.T) {
 }
 
 func TestGetAllMatchingCerts(t *testing.T) {
-	c := NewCache()
+	c := NewNameKeyedCache()
 	hash := "1"
 	names := []string{"webscale"}
 	cert := Certificate{

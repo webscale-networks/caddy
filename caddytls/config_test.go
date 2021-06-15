@@ -19,8 +19,31 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/caddyserver/caddy"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/klauspost/cpuid"
 )
+
+func TestNewConfigNamedKeyCache(t *testing.T) {
+	inst := &caddy.Instance{
+		Storage: make(map[interface{}]interface{}),
+	}
+	config, err := NewConfig(inst)
+	if err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	}
+
+	// Check cache was stored on instance.
+	_, ok := inst.Storage[CertCacheInstStorageKey].(*wstls.NameKeyedCache)
+	if !ok {
+		t.Fatal("Expected a NameKeyedCache instance to be stored")
+	}
+
+	// Check that manager is set on returned config.
+	if config.Manager == nil {
+		t.Fatal("Expected config to have a certificate manager")
+	}
+}
 
 func TestConvertTLSConfigProtocolVersions(t *testing.T) {
 	// same min and max protocol versions

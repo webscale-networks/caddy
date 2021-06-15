@@ -19,6 +19,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/caddyserver/caddy"
@@ -354,6 +355,37 @@ func TestSetupParseWithOneTLSProtocol(t *testing.T) {
 
 	if cfg.ProtocolMinVersion != tls.VersionTLS12 && cfg.ProtocolMaxVersion != tls.VersionTLS12 {
 		t.Errorf("Expected 'tls1.2 (0x0303)' as ProtocolMinVersion/ProtocolMaxVersion, got %v/%v", cfg.ProtocolMinVersion, cfg.ProtocolMaxVersion)
+	}
+}
+
+func TestSetupSetsCacheOverride(t *testing.T) {
+	c := caddy.NewTestController("", "")
+	cache := wstls.NewAliasKeyedCache()
+	c.Set(wstls.OverrideCacheKey, cache)
+
+	cfg := &Config{Manager: &wstls.Config{}}
+	RegisterConfigGetter("", func(c *caddy.Controller) *Config { return cfg })
+	err := setupTLS(c)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	if cfg.Manager.OverrideCache == nil ||
+		!reflect.DeepEqual(cfg.Manager.OverrideCache, cache) {
+		t.Fatalf("Expected OverrideCache to be set to %+v, got %+v", cache, cfg.Manager.OverrideCache)
+	}
+}
+
+func TestSetupDoesNotSetCacheOverride(t *testing.T) {
+	c := caddy.NewTestController("", "")
+
+	cfg := &Config{Manager: &wstls.Config{}}
+	RegisterConfigGetter("", func(c *caddy.Controller) *Config { return cfg })
+	err := setupTLS(c)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	if cfg.Manager.OverrideCache != nil {
+		t.Fatalf("Expected OverrideCache to be nil, got %+v", cfg.Manager.OverrideCache)
 	}
 }
 

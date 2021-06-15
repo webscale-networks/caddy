@@ -18,8 +18,8 @@ import (
 	"sync"
 )
 
-// Cache is a structure that stores certificates in memory.
-// A Cache indexes certificates by name for quick access
+// NameKeyedCache is a structure that stores certificates in memory.
+// A NameKeyedCache indexes certificates by name for quick access
 // during TLS handshakes, and avoids duplicating certificates
 // in memory. Generally, there should only be one per process.
 // However, that is not a strict requirement; but using more
@@ -27,20 +27,20 @@ import (
 // over-engineered design.
 //
 // An empty cache is INVALID and must not be used. Be sure
-// to call NewCache to get a valid value.
+// to call NewNameKeyedCache to get a valid value.
 //
 // These should be very long-lived values and must not be
 // copied. Before all references leave scope to be garbage
 // collected, ensure you call Stop() to stop maintenance on
 // the certificates stored in this cache and release locks.
 //
-// Caches are not usually manipulated directly; create a
-// Config value with a pointer to a Cache, and then use
-// the Config to interact with the cache. Caches are
+// NameKeyedCaches are not usually manipulated directly; create a
+// Config value with a pointer to a NameKeyedCache, and then use
+// the Config to interact with the cache. NameKeyedCaches are
 // agnostic of any particular storage or ACME config,
 // since each certificate may be managed and stored
 // differently.
-type Cache struct {
+type NameKeyedCache struct {
 	// The cache is keyed by certificate hash
 	cache map[string]Certificate
 
@@ -51,7 +51,7 @@ type Cache struct {
 	mu sync.RWMutex
 }
 
-// NewCache returns a new, valid Cache for efficiently
+// NewNameKeyedCache returns a new, valid NameKeyedCache for efficiently
 // accessing certificates in memory. Call Stop() when
 // you are done with the cache so it can clean up
 // locks and stuff.
@@ -60,13 +60,13 @@ type Cache struct {
 // because a default certificate cache is created for you.
 // Only advanced use cases require creating a new cache.
 //
-// See the godoc for Cache to use it properly. When
+// See the godoc for NameKeyedCache to use it properly. When
 // no longer needed, caches should be stopped with
 // Stop() to clean up resources even if the process
 // is being terminated, so that it can clean up
 // any locks for other processes to unblock!
-func NewCache() *Cache {
-	c := &Cache{
+func NewNameKeyedCache() *NameKeyedCache {
+	c := &NameKeyedCache{
 		cache:      make(map[string]Certificate),
 		cacheIndex: make(map[string][]string),
 	}
@@ -77,7 +77,7 @@ func NewCache() *Cache {
 // cacheCertificate calls unsyncedCacheCertificate with a write lock.
 //
 // This function is safe for concurrent use.
-func (certCache *Cache) cacheCertificate(cert Certificate) {
+func (certCache *NameKeyedCache) cacheCertificate(cert Certificate) {
 	certCache.mu.Lock()
 	certCache.unsyncedCacheCertificate(cert)
 	certCache.mu.Unlock()
@@ -89,7 +89,7 @@ func (certCache *Cache) cacheCertificate(cert Certificate) {
 //
 // This function is NOT safe for concurrent use. Callers MUST acquire
 // a write lock on certCache.mu first.
-func (certCache *Cache) unsyncedCacheCertificate(cert Certificate) {
+func (certCache *NameKeyedCache) unsyncedCacheCertificate(cert Certificate) {
 	// no-op if this certificate already exists in the cache
 	if _, ok := certCache.cache[cert.hash]; ok {
 		return
@@ -104,7 +104,7 @@ func (certCache *Cache) unsyncedCacheCertificate(cert Certificate) {
 	}
 }
 
-func (certCache *Cache) getAllMatchingCerts(name string) []Certificate {
+func (certCache *NameKeyedCache) getAllMatchingCerts(name string) []Certificate {
 	certCache.mu.RLock()
 	defer certCache.mu.RUnlock()
 
@@ -119,6 +119,6 @@ func (certCache *Cache) getAllMatchingCerts(name string) []Certificate {
 }
 
 var (
-	defaultCache   *Cache
+	defaultCache   *NameKeyedCache
 	defaultCacheMu sync.Mutex
 )

@@ -95,13 +95,15 @@ type Config struct {
 
 // NewConfig returns a new Config with a pointer to the instance's
 // certificate cache. You will usually need to set other fields on
-// the returned Config for successful practical use.
+// the returned Config for successful practical use. By default, use a
+// certificate cache that is keyed on the names in the certificate. If the
+// 'strict_tls' directive is set in the Caddyfile, this cache will be ignored.
 func NewConfig(inst *caddy.Instance) (*Config, error) {
 	inst.StorageMu.RLock()
-	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*wstls.Cache)
+	certCache, ok := inst.Storage[CertCacheInstStorageKey].(*wstls.NameKeyedCache)
 	inst.StorageMu.RUnlock()
 	if !ok || certCache == nil {
-		certCache = wstls.NewCache()
+		certCache = wstls.NewNameKeyedCache()
 
 		inst.StorageMu.Lock()
 		inst.Storage[CertCacheInstStorageKey] = certCache
