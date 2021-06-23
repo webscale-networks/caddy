@@ -15,6 +15,13 @@ func TestNewAliasKeyedCache_returns_initialized_cache(t *testing.T) {
 	}
 }
 
+func TestNewAliasKeyedCache_set_defaultCertificate_to_nil(t *testing.T) {
+	cache := NewAliasKeyedCache()
+	if cache.defaultCertificate != nil {
+		t.Fatalf("Expected an initialized cache defaultCertificate to be nil, got %+v", cache)
+	}
+}
+
 func TestLoad_returns_error_given_invalid_file(t *testing.T) {
 	cert, err := os.Create("cert1.pem")
 	if err != nil {
