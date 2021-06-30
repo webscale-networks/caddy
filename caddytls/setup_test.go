@@ -19,9 +19,11 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"reflect"
 	"testing"
 
 	"github.com/caddyserver/caddy"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/go-acme/lego/v3/certcrypto"
 	"github.com/mholt/certmagic"
 )
@@ -354,6 +356,37 @@ func TestSetupParseWithCAUrl(t *testing.T) {
 		if cfg.Manager.CA != caseData.expectedCAUrl {
 			t.Errorf("Expected '%v' as CAUrl, got %#v", caseData.expectedCAUrl, cfg.Manager.CA)
 		}
+	}
+}
+
+func TestSetupSetsCacheOverride(t *testing.T) {
+	c := caddy.NewTestController("", "")
+	cache := wstls.NewAliasKeyedCache()
+	c.Set(wstls.OverrideCacheKey, cache)
+
+	cfg := &Config{Manager: &certmagic.Config{}}
+	RegisterConfigGetter("", func(c *caddy.Controller) *Config { return cfg })
+	err := setupTLS(c)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	if cfg.OverrideCache == nil ||
+		!reflect.DeepEqual(cfg.OverrideCache, cache) {
+		t.Fatalf("Expected OverrideCache to be set to %+v, got %+v", cache, cfg.OverrideCache)
+	}
+}
+
+func TestSetupDoesNotSetCacheOverride(t *testing.T) {
+	c := caddy.NewTestController("", "")
+
+	cfg := &Config{Manager: &certmagic.Config{}}
+	RegisterConfigGetter("", func(c *caddy.Controller) *Config { return cfg })
+	err := setupTLS(c)
+	if err != nil {
+		t.Errorf("Expected no errors, got: %v", err)
+	}
+	if cfg.OverrideCache != nil {
+		t.Fatalf("Expected OverrideCache to be nil, got %+v", cfg.OverrideCache)
 	}
 }
 

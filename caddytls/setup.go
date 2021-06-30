@@ -15,11 +15,8 @@
 package caddytls
 
 import (
-	"bytes"
 	"crypto/tls"
-	"encoding/pem"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/url"
@@ -31,6 +28,7 @@ import (
 
 	"github.com/caddyserver/caddy"
 	"github.com/caddyserver/caddy/telemetry"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/mholt/certmagic"
 )
 
@@ -352,6 +350,14 @@ func setupTLS(c *caddy.Controller) error {
 		}
 	}
 
+	// If Webscale's 'strict_tls' plugin has created and set the cache override
+	// in the Caddy instance, that must mean the Caddyfile includes
+	// alias-certificate associations. As a result, use the override cache
+	// instead of the default cache stored in config.Manager.
+	if override := c.Get(wstls.OverrideCacheKey); override != nil {
+		config.OverrideCache = override.(*wstls.AliasKeyedCache)
+	}
+
 	SetDefaultTLSParams(config)
 
 	// generate self-signed cert if needed
@@ -398,65 +404,9 @@ func loadCertsInDir(cfg *Config, c *caddy.Controller, dir string) error {
 			return nil
 		}
 		if strings.HasSuffix(strings.ToLower(info.Name()), ".pem") {
-			certBuilder, keyBuilder := new(bytes.Buffer), new(bytes.Buffer)
-			var foundKey bool // use only the first key in the file
-
-			bundle, err := ioutil.ReadFile(path)
+			certPEMBytes, keyPEMBytes, err := wstls.ParseCertificate(path)
 			if err != nil {
-				return err
-			}
-
-			for {
-				// Decode next block so we can see what type it is
-				var derBlock *pem.Block
-				derBlock, bundle = pem.Decode(bundle)
-				if derBlock == nil {
-					break
-				}
-
-				if derBlock.Type == "CERTIFICATE" {
-					// Re-encode certificate as PEM, appending to certificate chain
-					if err := pem.Encode(certBuilder, derBlock); err != nil {
-						log.Println("[ERROR] failed to write PEM encoding: ", err)
-					}
-				} else if derBlock.Type == "EC PARAMETERS" {
-					// EC keys generated from openssl can be composed of two blocks:
-					// parameters and key (parameter block should come first)
-					if !foundKey {
-						// Encode parameters
-						if err := pem.Encode(keyBuilder, derBlock); err != nil {
-							log.Println("[ERROR] failed to write PEM encoding: ", err)
-						}
-
-						// Key must immediately follow
-						derBlock, bundle = pem.Decode(bundle)
-						if derBlock == nil || derBlock.Type != "EC PRIVATE KEY" {
-							return c.Errf("%s: expected elliptic private key to immediately follow EC parameters", path)
-						}
-						if err := pem.Encode(keyBuilder, derBlock); err != nil {
-							log.Println("[ERROR] failed to write PEM encoding: ", err)
-						}
-						foundKey = true
-					}
-				} else if derBlock.Type == "PRIVATE KEY" || strings.HasSuffix(derBlock.Type, " PRIVATE KEY") {
-					// RSA key
-					if !foundKey {
-						if err := pem.Encode(keyBuilder, derBlock); err != nil {
-							log.Println("[ERROR] failed to write PEM encoding: ", err)
-						}
-						foundKey = true
-					}
-				} else {
-					return c.Errf("%s: unrecognized PEM block type: %s", path, derBlock.Type)
-				}
-			}
-
-			certPEMBytes, keyPEMBytes := certBuilder.Bytes(), keyBuilder.Bytes()
-			if len(certPEMBytes) == 0 {
-				return c.Errf("%s: failed to parse PEM data", path)
-			}
-			if len(keyPEMBytes) == 0 {
-				return c.Errf("%s: no private key block found", path)
+				return c.Err(err.Error())
 			}
 
 			err = cfg.Manager.CacheUnmanagedCertificatePEMBytes(certPEMBytes, keyPEMBytes, nil)

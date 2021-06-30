@@ -16,11 +16,86 @@ package caddytls
 
 import (
 	"crypto/tls"
+	"os"
 	"reflect"
 	"testing"
 
+	"github.com/caddyserver/caddy"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/klauspost/cpuid"
+	"github.com/mholt/certmagic"
 )
+
+func TestNewConfigSetsOverrideCache(t *testing.T) {
+	inst := &caddy.Instance{
+		Storage: make(map[interface{}]interface{}),
+	}
+	c, err := NewConfig(inst)
+	if err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	}
+	if c.OverrideCache != nil {
+		t.Fatalf("Expected OverrideCache to be nil")
+	}
+}
+
+func TestGetCertificateCallbackOverrideSet(t *testing.T) {
+	// Create and seed the cache.
+	url := "webscale.lagrange.ninja"
+	cache := wstls.NewAliasKeyedCache()
+	if err := loadTestCertificate(cache, url); err != nil {
+		t.Fatalf("Unexpected error occurred %s", err)
+	}
+
+	// Set override cache.
+	c := &Config{}
+	c.OverrideCache = cache
+
+	// Remove certmagic's certificate cache lookup.
+	c.Manager = nil
+
+	hello := &tls.ClientHelloInfo{
+		ServerName: url,
+	}
+
+	expectedCert, err := cache.GetCertificate(hello)
+	if err != nil {
+		t.Fatalf("Unexpected error occurred %s", err)
+	}
+	actualCert, err := c.getCertificateCallback()(hello)
+	if err != nil {
+		t.Fatalf("Unexpected error occurred %s", err)
+	}
+	if !reflect.DeepEqual(expectedCert, actualCert) {
+		t.Fatalf("Expected %+v, got %+v", expectedCert, actualCert)
+	}
+}
+
+func TestGetCertificateCertmagicCache(t *testing.T) {
+	inst := &caddy.Instance{
+		Storage: make(map[interface{}]interface{}),
+	}
+	c, err := NewConfig(inst)
+	if err != nil {
+		t.Fatalf("Unexpected error %s", err)
+	}
+
+	c.OverrideCache = nil
+	d := &DummyCertSelection{
+		called: false,
+	}
+	c.Manager.CertSelection = d
+	c.Manager.CacheUnmanagedCertificatePEMBytes([]byte(certBytes), []byte(keyBytes), []string{})
+
+	url := "7591*.lagrange.ninja"
+	hello := &tls.ClientHelloInfo{
+		ServerName: url,
+	}
+	c.getCertificateCallback()(hello)
+	if !d.called {
+		t.Fatal("Expected certmagic lookup to be called")
+	}
+}
 
 func TestConvertTLSConfigProtocolVersions(t *testing.T) {
 	// same min and max protocol versions
@@ -130,3 +205,55 @@ func TestAssertTLSConfigCompatibleClientCert(t *testing.T) {
 		t.Fatalf("Expected no error, but got %v", err)
 	}
 }
+
+func loadTestCertificate(cache *wstls.AliasKeyedCache, url string) error {
+	cert, err := os.Create("cert1.pem")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(cert.Name())
+	content := keyBytes + certBytes
+	cert.Write([]byte(content))
+	return cache.Load(cert.Name(), []string{url})
+}
+
+type DummyCertSelection struct {
+	called bool
+}
+
+func (d *DummyCertSelection) SelectCertificate(*tls.ClientHelloInfo, []certmagic.Certificate) (certmagic.Certificate, error) {
+	d.called = true
+	return certmagic.Certificate{}, nil
+}
+
+var keyBytes = `-----BEGIN RSA PRIVATE KEY-----
+MIICXQIBAAKBgQChxPYdRkkmetH2K4u7R8EMpQjMSwkKrnEd3wLGaz9Zm2HmQi2x
+wqYgi2i4bCsZp2biWapH9uD+gpmcYfnDb1Fk5CbdS4ZAKwVUWU/Los4FOvxXtK+6
+hEcPRtpQJ95xa27vqO6qFzG2ez0f1jx153IyYwJ/WtlawUTwTxhUkiGbSQIDAQAB
+AoGABgXXQ+/B+XTJLGkioq5hOZ9LXI/Onl8wRvRungSQLz3hvzjnip68oKmQFI2y
+bRoWcob0GAnRBqjGH1RmgCg8132f0PfWXD+xMKwEM2ut8PeEbW8b98KEswgud22K
+q8hJBERvB0WSC+h+N+IGJBK8d8AvUlyVeOjIUk0Xs7PLMIECQQDMBwTKh1GwZWo1
+RYoK6Wfr6g9xkhlXEQ+wmzn0uDrIxPP6NICKt7SFLTiRshQVFcZ+wwjCbVGdK9Cy
+XoZNitCdAkEAyvo5EJgaVEiVqPwL40qG6ci9ZjibdcQaxe6M91XqyMU0L6PzWSNm
+aoIDx6+DTbAYTvEjFy4v7xcfC08gKCrnnQJBAKMqyc4ewlnMAVBxOKDZYV7uZUNy
+kAltf5rByWvJGloOCQCElHhbymbnb2I1hJIIRCKEX7D+NFL6A4Fizw2cgpECQQCB
+mMoeoj8NWVrVDji44rjJQ/ZJ8hKwWomNnwY6VY0Wq3LqiA+z9jpJ/sFTGekIDUs3
+/Bafkkngqi6UFe0+OEaxAkA5GnIgnQaIToj28vpax//p1AnA4i/te1cYKaJzBZpy
+lP41So/Dpf1UIW6GmZo2w4PVKj3hc6/FUegVLmQxZffD
+-----END RSA PRIVATE KEY-----
+`
+
+var certBytes = `-----BEGIN CERTIFICATE-----
+MIICLjCCAZcCAQEwDQYJKoZIhvcNAQEFBQAwWzELMAkGA1UEBhMCVVMxDTALBgNV
+BAgMBE9oaW8xETAPBgNVBAcMCENvbHVtYnVzMRAwDgYDVQQKDAdNeUNlcnRzMRgw
+FgYDVQQDDA93d3cubXljZXJ0cy5jb20wHhcNMjEwNDIzMjIwMDM4WhcNMjIwNDIz
+MjIwMDM4WjBkMQswCQYDVQQGEwJVUzERMA8GA1UECAwIQ29sb3JhZG8xEDAOBgNV
+BAcMB0JvdWxkZXIxETAPBgNVBAoMCFdlYnNjYWxlMR0wGwYDVQQDDBQ3NTkxKi5s
+YWdyYW5nZS5uaW5qYTCBnzANBgkqhkiG9w0BAQEFAAOBjQAwgYkCgYEAocT2HUZJ
+JnrR9iuLu0fBDKUIzEsJCq5xHd8Cxms/WZth5kItscKmIItouGwrGadm4lmqR/bg
+/oKZnGH5w29RZOQm3UuGQCsFVFlPy6LOBTr8V7SvuoRHD0baUCfecWtu76juqhcx
+tns9H9Y8dedyMmMCf1rZWsFE8E8YVJIhm0kCAwEAATANBgkqhkiG9w0BAQUFAAOB
+gQCV0nzUudq58dwZBbVG0U8dIQ+Fb4f/WUYcr9F3q3o4A4tXN5xGXRqbtqyERT/J
+dnJycx1mp+X6hiTXJaajhEy+ljhz+ubJmIrpRUh+fhxboI5ml5O1J+hdrFP2He0/
+9AwI9B05dYBoizG3WuXll8ctbQE1eDi70GzSyQ5gflpyDw==
+-----END CERTIFICATE-----`
