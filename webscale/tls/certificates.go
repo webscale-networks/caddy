@@ -2,7 +2,6 @@ package tls
 
 import (
 	"bytes"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
@@ -157,15 +156,4 @@ func fillCertFromLeaf(cert *certmagic.Certificate, tlsCert tls.Certificate) erro
 	cert.PublicKeyAlgorithm = leaf.PublicKeyAlgorithm
 
 	return nil
-}
-
-// hashCertificateChain computes the unique hash of certChain,
-// which is the chain of DER-encoded bytes. It returns the
-// hex encoding of the hash.
-func hashCertificateChain(certChain [][]byte) string {
-	h := sha256.New()
-	for _, certInChain := range certChain {
-		h.Write(certInChain)
-	}
-	return fmt.Sprintf("%x", h.Sum(nil))
 }

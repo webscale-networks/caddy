@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/mholt/certmagic"
@@ -31,9 +30,6 @@ type AliasKeyedCache struct {
 
 	// Default certificate.
 	defaultCertificate *certmagic.Certificate
-
-	// Protects the cache map.
-	mu sync.RWMutex
 }
 
 // NewAliasKeyedCache creates a new alias-certificate cache.
@@ -50,9 +46,6 @@ func NewAliasKeyedCache() *AliasKeyedCache {
 // certificate. If the given file is not a valid PEM file, an error is returned.
 // Only Webscale's 'strict_tls' plugin should call this function.
 func (cache *AliasKeyedCache) Load(file string, aliases []string) error {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
 	certPEMBytes, keyPEMBytes, err := ParseCertificate(file)
 	if err != nil {
 		return err
@@ -74,9 +67,6 @@ func (cache *AliasKeyedCache) Load(file string, aliases []string) error {
 // certificate cannot be found for the SNI in the client's hello message during
 // TLS handshake. Only Webscale's 'strict_tls' plugin should call this function.
 func (cache *AliasKeyedCache) SetDefaultCertificate(file string) error {
-	cache.mu.Lock()
-	defer cache.mu.Unlock()
-
 	certPEMBytes, keyPEMBytes, err := ParseCertificate(file)
 	if err != nil {
 		return err
@@ -100,8 +90,6 @@ func (cache *AliasKeyedCache) GetCertificate(hello *tls.ClientHelloInfo) (*tls.C
 
 	// If an unexpired certificate has been associated to this alias was found,
 	// return it.
-	cache.mu.RLock()
-	defer cache.mu.RUnlock()
 	cert, ok := cache.cache[name]
 	if ok && now.Before(cert.NotAfter) {
 		return &cert.Certificate, nil
