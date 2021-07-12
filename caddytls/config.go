@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/caddyserver/caddy"
+	wstls "github.com/caddyserver/caddy/webscale/tls"
 	"github.com/go-acme/lego/v3/certcrypto"
 	"github.com/go-acme/lego/v3/challenge/tlsalpn01"
 	"github.com/klauspost/cpuid"
@@ -102,6 +103,15 @@ type Config struct {
 	// The final tls.Config created with
 	// buildStandardTLSConfig()
 	tlsConfig *tls.Config
+
+	// Pointer to in-memory certificate cache to use instead of certCache.
+	// When non-nil, this cache is used instead of certCache for certificate
+	// lookups. This cache is keyed on hostname aliases. These alias-certificate
+	// associations are detailed in 'strict_tls' directive of the Caddyfile. The
+	// certificate that is served is the one that matches the SNI in the
+	// client's hello message during the TLS handshake, regardless of whether or
+	// not the certificate covers the alias.
+	OverrideCache *wstls.AliasKeyedCache
 }
 
 // NewConfig returns a new Config with a pointer to the instance's
@@ -158,7 +168,8 @@ func NewConfig(inst *caddy.Instance) (*Config, error) {
 		inst.StorageMu.Unlock()
 	}
 	return &Config{
-		Manager: certmagic.New(certCache, certmagic.Config{}),
+		OverrideCache: nil,
+		Manager:       certmagic.New(certCache, certmagic.Config{}),
 	}, nil
 }
 
@@ -209,7 +220,7 @@ func (c *Config) buildStandardTLSConfig() error {
 	config.MaxVersion = c.ProtocolMaxVersion
 	config.ClientAuth = c.ClientAuth
 	config.NextProtos = c.ALPN
-	config.GetCertificate = c.Manager.GetCertificate
+	config.GetCertificate = c.getCertificateCallback()
 
 	// set up client authentication if enabled
 	if config.ClientAuth != tls.NoClientCert {
@@ -251,6 +262,23 @@ func (c *Config) buildStandardTLSConfig() error {
 	c.tlsConfig = config
 
 	return nil
+}
+
+// Create a GetCertificate function for retrieving certificates from the cache.
+// If the configuration's OverrideCache is set, it is used. Otherwise,
+// certmagic's certificate cache is used. The difference between the caches
+// are how they choose a TLS certificate to serve.
+func (c *Config) getCertificateCallback() func(*tls.ClientHelloInfo) (*tls.Certificate, error) {
+	return func(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
+		if c.OverrideCache != nil {
+			cert, err := c.OverrideCache.GetCertificate(hello)
+			if err != nil {
+				return nil, err
+			}
+			return cert, nil
+		}
+		return c.Manager.GetCertificate(hello)
+	}
 }
 
 // MakeTLSConfig makes a tls.Config from configs. The returned
